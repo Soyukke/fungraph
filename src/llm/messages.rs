@@ -95,7 +95,6 @@ impl Message {
         }
     }
 
-    // Function to create a new System message with a generic type that implements Display
     pub fn new_system_message<T: std::fmt::Display>(content: T) -> Self {
         Message {
             content: content.to_string(),
@@ -106,7 +105,6 @@ impl Message {
         }
     }
 
-    // Function to create a new AI message with a generic type that implements Display
     pub fn new_ai_message<T: std::fmt::Display>(content: T) -> Self {
         Message {
             content: content.to_string(),
@@ -117,7 +115,6 @@ impl Message {
         }
     }
 
-    // Function to create a new Tool message with a generic type that implements Display
     pub fn new_tool_message<T: std::fmt::Display, S: Into<String>>(content: T, id: S) -> Self {
         Message {
             content: content.to_string(),
@@ -128,15 +125,6 @@ impl Message {
         }
     }
 
-    /// Sets the tool calls for the OpenAI-like API call.
-    ///
-    /// Use this method when you need to specify tool calls in the configuration.
-    /// This is particularly useful in scenarios where interactions with specific
-    /// tools are required for operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `tool_calls` - A `serde_json::Value` representing the tool call configurations.
     pub fn with_tool_calls(mut self, tool_calls: Value) -> Self {
         self.tool_calls = Some(tool_calls);
         self
@@ -152,5 +140,38 @@ impl Message {
             .map(|m| format!("{:?}: {}", m.message_type, m.content))
             .collect::<Vec<String>>()
             .join("\n")
+    }
+}
+
+pub struct Messages {
+    messages: Vec<Message>,
+}
+
+impl Messages {
+    pub fn as_ref(&self) -> &[Message] {
+        &self.messages
+    }
+}
+
+pub struct MessagesBuilder {
+    messages: Vec<Message>,
+}
+
+impl MessagesBuilder {
+    pub fn new() -> Self {
+        Self {
+            messages: Vec::new(),
+        }
+    }
+
+    pub fn add_human_message(mut self, content: &str) -> Self {
+        self.messages.push(Message::new_human_message(content));
+        self
+    }
+
+    pub fn build(self) -> Messages {
+        Messages {
+            messages: self.messages,
+        }
     }
 }

@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use env_logger::init;
 use fungraph::{
     llm::Message,
@@ -20,12 +21,13 @@ impl FunState for ChatbotState {}
 struct InputNode {}
 
 /// ユーザーからの入力を受け取るステートノード
+#[async_trait]
 impl FunNode<ChatbotState> for InputNode {
     fn get_name(&self) -> String {
         "InputNode".to_string()
     }
 
-    fn run(&self, state: ChatbotState) -> ChatbotState {
+    async fn run(&self, state: ChatbotState) -> ChatbotState {
         // 標準入力からユーザーの入力を受け取る
         println!("何か入力してください:");
         let mut input = String::new();
@@ -48,12 +50,13 @@ impl FunNode<ChatbotState> for InputNode {
 struct OutputNode {}
 
 /// 標準出力にメッセージを表示するステートノード
+#[async_trait]
 impl FunNode<ChatbotState> for OutputNode {
     fn get_name(&self) -> String {
         "OutputNode".to_string()
     }
 
-    fn run(&self, state: ChatbotState) -> ChatbotState {
+    async fn run(&self, state: ChatbotState) -> ChatbotState {
         println!("出力: {}", state.message.clone().unwrap());
         ChatbotState {
             message: state.message,
@@ -87,12 +90,12 @@ impl ChatBotAgent {
         ChatBotAgent { graph }
     }
 
-    pub fn run(&self) {
+    pub async fn run(&self) {
         let initial_state = ChatbotState {
             message: None,
             histories: vec![],
         };
-        self.graph.run(initial_state);
+        self.graph.run(initial_state).await;
     }
 }
 
@@ -103,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     debug!("Starting chatbot example");
 
     let agent = ChatBotAgent::new();
-    agent.run();
+    agent.run().await;
 
     Ok(())
 }

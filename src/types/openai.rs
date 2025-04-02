@@ -1,3 +1,10 @@
+use std::pin::Pin;
+
+use futures::Stream;
+use serde::{Deserialize, Serialize};
+
+use crate::llm::LLMError;
+
 #[derive(Clone, Serialize, Default, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatCompletionToolType {
@@ -90,3 +97,79 @@ struct OpenAIResponse {
     pub object: String,
     pub usage: Option<String>,
 }
+
+#[derive(Clone, Serialize, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceTierResponse {
+    Scale,
+    Default,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct CompletionUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+    pub prompt_tokens_details: Option<PromptTokensDetails>,
+    pub completion_tokens_details: Option<CompletionTokensDetails>,
+}
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct CompletionTokensDetails {
+    pub accepted_prediction_tokens: Option<u32>,
+    pub audio_tokens: Option<u32>,
+    pub reasoning_tokens: Option<u32>,
+    pub rejected_prediction_tokens: Option<u32>,
+}
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct PromptTokensDetails {
+    pub audio_tokens: Option<u32>,
+    pub cached_tokens: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Serialize)]
+pub struct CreateChatCompletionStreamResponse {
+    pub id: Option<String>,
+    pub choices: Vec<ChatChoiceStream>,
+    pub created: u32,
+    pub model: String,
+    pub service_tier: Option<ServiceTierResponse>,
+    pub system_fingerprint: Option<String>,
+    pub object: String,
+    pub usage: Option<CompletionUsage>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct FunctionCallStream {
+    pub name: Option<String>,
+    pub arguments: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct ChatCompletionMessageToolCallChunk {
+    pub index: Option<i32>,
+    pub id: Option<String>,
+    pub r#type: Option<ChatCompletionToolType>,
+    pub function: Option<FunctionCallStream>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct ChatCompletionStreamResponseDelta {
+    pub content: Option<String>,
+    #[deprecated]
+    pub function_call: Option<FunctionCallStream>,
+
+    pub tool_calls: Option<Vec<ChatCompletionMessageToolCallChunk>>,
+    pub role: Option<Role>,
+    pub refusal: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct ChatChoiceStream {
+    pub index: u32,
+    pub delta: ChatCompletionStreamResponseDelta,
+    pub finish_reason: Option<FinishReason>,
+    pub logprobs: Option<ChatChoiceLogprobs>,
+}
+
+pub type ChatCompletionResponseStream =
+    Pin<Box<dyn Stream<Item = Result<CreateChatCompletionStreamResponse, LLMError>> + Send>>;

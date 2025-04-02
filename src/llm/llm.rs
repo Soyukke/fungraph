@@ -5,18 +5,22 @@ use std::{collections::HashMap, pin::Pin};
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{StreamData, TokenUsage};
+use crate::types::{ChatCompletionResponseStream, StreamData, TokenUsage};
 
-use super::{LLMError, Message};
+use super::{LLMError, Message, Messages};
 
 #[async_trait]
 pub trait LLM: Send + Sync {
     async fn generate(&self, prompt: &[Message]) -> Result<GenerateResult, LLMError>;
-    async fn invoke(&self, prompt: &str) -> Result<String, LLMError>;
-    async fn stream(
+    async fn invoke(&self, messages: &Messages) -> Result<GenerateResult, LLMError>;
+    async fn invoke_stream_one_result(
         &self,
         messages: &[Message],
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamData, LLMError>> + Send>>, LLMError>;
+    ) -> Result<GenerateResult, LLMError>;
+    async fn invoke_stream(
+        &self,
+        messages: &[Message],
+    ) -> Result<ChatCompletionResponseStream, LLMError>;
     fn add_options(&mut self, options: &CallOptions);
 }
 
@@ -36,15 +40,17 @@ impl Default for CallOptions {
     }
 }
 
-//TODO: check if its this should have a data:serde::Value to save all other things, like OpenAI
-//function responses
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct GenerateResult {
-    pub tokens: Option<TokenUsage>,
-    pub generation: String,
+    tokens: Option<TokenUsage>,
+    generation: String,
 }
 
 impl GenerateResult {
+    pub fn new(generation: String, tokens: Option<TokenUsage>) -> Self {
+        Self { generation, tokens }
+    }
+
     pub fn to_hashmap(&self) -> HashMap<String, String> {
         let mut map = HashMap::new();
 
@@ -65,5 +71,17 @@ impl GenerateResult {
         }
 
         map
+    }
+
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+
+    pub fn set_generation(&mut self, generation: &str) {
+        self.generation = generation.to_string();
+    }
+
+    pub fn push_generation(&mut self, generation: &str) {
+        self.generation.push_str(generation);
     }
 }

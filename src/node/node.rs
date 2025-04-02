@@ -1,5 +1,6 @@
 // node trait
 
+use async_trait::async_trait;
 use petgraph::{Direction, Graph, graph::NodeIndex};
 
 #[derive(Debug, Clone)]
@@ -10,9 +11,10 @@ pub struct State {
 
 pub trait FunState {}
 
+#[async_trait]
 pub trait FunNode<S: FunState> {
     fn get_name(&self) -> String;
-    fn run(&self, state: S) -> S;
+    async fn run(&self, state: S) -> S;
 }
 
 pub enum FunEdgeType {
@@ -82,14 +84,14 @@ where
         indices.first().unwrap().clone()
     }
 
-    pub fn run(&self, state: S) -> S {
+    pub async fn run(&self, state: S) -> S {
         let begin_node = self.get_begin_node();
         let end_node = self.get_end_node();
         let mut current_node = begin_node;
         let mut current_state = state;
         loop {
             let node = self.graph.node_weight(current_node).unwrap();
-            current_state = node.run(current_state);
+            current_state = node.run(current_state).await;
             let next_nodes: Vec<NodeIndex> = self
                 .graph
                 .neighbors_directed(current_node, Direction::Outgoing)
