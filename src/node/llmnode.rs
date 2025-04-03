@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use crate::llm::{LLM, MessagesBuilder};
 
 // llmに入力し、出力する処理を実装する

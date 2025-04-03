@@ -1,11 +1,10 @@
 use async_trait::async_trait;
-use futures::Stream;
 use log::debug;
-use std::{collections::HashMap, pin::Pin};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ChatCompletionResponseStream, GenerateResultStream, StreamData, TokenUsage};
+use crate::types::TokenUsage;
 
 use super::{LLMError, Message, Messages, gemini::ChatStream};
 

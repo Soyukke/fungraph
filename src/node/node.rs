@@ -86,7 +86,7 @@ where
 
     pub async fn run(&self, state: S) -> S {
         let begin_node = self.get_begin_node();
-        let end_node = self.get_end_node();
+        let _end_node = self.get_end_node();
         let mut current_node = begin_node;
         let mut current_state = state;
         loop {

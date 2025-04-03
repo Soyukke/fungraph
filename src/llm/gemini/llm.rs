@@ -10,7 +10,7 @@ use log::{debug, warn};
 use anyhow::Result;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest_eventsource::{Event, EventSource, RequestBuilderExt};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 
 use crate::{
     llm::{
@@ -19,7 +19,7 @@ use crate::{
     },
     types::{
         ChatChoiceStream, ChatCompletionResponseStream, CreateChatCompletionStreamResponse,
-        GenerateResultStream, TokenUsage,
+        TokenUsage,
     },
 };
 
@@ -42,18 +42,6 @@ impl Gemini {
     pub fn with_options(mut self, options: CallOptions) -> Self {
         self.options = options;
         self
-    }
-
-    async fn post(&self, url: &str, body: &GeminiRequest) -> Result<reqwest::Response> {
-        let client = reqwest::Client::new();
-        let response = client
-            .post(url)
-            .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, format!("Bearer {}", self.config.api_key()))
-            .body(serde_json::to_string(body)?)
-            .send()
-            .await?;
-        Ok(response)
     }
 }
 // open ai互換のgeminiを使う
@@ -316,7 +304,7 @@ impl Gemini {
 
             let gemini_message = OpenAIContent {
                 content: message.content.clone(),
-                role: role,
+                role,
             };
             contents.push(gemini_message);
         }
@@ -345,7 +333,7 @@ impl Gemini {
 
             let gemini_message = OpenAIContent {
                 content: message.content.clone(),
-                role: role,
+                role,
             };
             contents.push(gemini_message);
         }

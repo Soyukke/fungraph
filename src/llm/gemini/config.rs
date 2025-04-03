@@ -84,9 +84,6 @@ impl GeminiConfigBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
-    use env_logger::init;
-    use httpmock::prelude::*;
 
     // cargo test --lib gemini::tests::test_gemini_config_builder_api_key_empty
     #[test]

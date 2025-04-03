@@ -161,9 +161,3 @@ pub struct GeminiRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
 }
-
-#[derive(Debug, Serialize)]
-struct OpenAIRequestMessage {
-    role: String,
-    parts: Vec<OpenAIContent>,
-}
