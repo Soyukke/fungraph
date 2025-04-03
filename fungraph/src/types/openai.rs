@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
 use futures::Stream;
 use serde::{Deserialize, Serialize};
@@ -175,3 +175,79 @@ pub type ChatCompletionResponseStream =
     Pin<Box<dyn Stream<Item = Result<CreateChatCompletionStreamResponse, LLMError>> + Send>>;
 pub type GenerateResultStream =
     Pin<Box<dyn Stream<Item = Result<GenerateResult, LLMError>> + Send>>;
+
+#[derive(Debug, Serialize, Clone)]
+pub enum ToolType {
+    #[serde(rename = "function")]
+    Function,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Tool {
+    #[serde(rename = "type")]
+    pub r#type: ToolType,
+    pub function: FunctionDescription,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FunctionDescription {
+    pub name: String,
+    pub description: String,
+    pub parameters: Parameters,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Parameters {
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub properties: HashMap<String, Property>,
+    pub required: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Property {
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub description: Option<String>,
+    #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
+    pub enum_values: Option<Vec<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::types::openai::{FunctionDescription, Parameters, ToolType};
+
+    use super::*;
+
+    #[test]
+    fn test_tool_json() {
+        let tool = Tool {
+            r#type: ToolType::Function,
+            function: FunctionDescription {
+                name: "test_function".to_string(),
+                description: "This is a test function".to_string(),
+                parameters: Parameters {
+                    r#type: "object".to_string(),
+                    properties: HashMap::new(),
+                    required: vec!["param1".to_string()],
+                },
+            },
+        };
+        let result = serde_json::to_value(&tool).unwrap();
+        let expected = json!({
+            "type": "function",
+            "function": {
+            "name": "test_function",
+            "description": "This is a test function",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": ["param1"]
+            }
+            }
+        });
+        assert_eq!(result, expected);
+    }
+}

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use log::debug;
+use serde_json::Value;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -10,12 +11,9 @@ use super::{LLMError, Message, Messages, gemini::ChatStream};
 
 #[async_trait]
 pub trait LLM: Send + Sync {
-    async fn generate(&self, prompt: &[Message]) -> Result<GenerateResult, LLMError>;
-    async fn invoke(&self, messages: &Messages) -> Result<GenerateResult, LLMError>;
-    async fn invoke_stream_one_result(
-        &self,
-        messages: &[Message],
-    ) -> Result<GenerateResult, LLMError>;
+    async fn generate(&self, prompt: &Messages) -> Result<LLMResult, LLMError>;
+    async fn invoke(&self, messages: &Messages) -> Result<LLMResult, LLMError>;
+    async fn invoke_stream_one_result(&self, messages: &Messages) -> Result<LLMResult, LLMError>;
     async fn invoke_stream(&self, messages: &Messages) -> Result<ChatStream, LLMError>;
     fn add_options(&mut self, options: &CallOptions);
 }
@@ -36,15 +34,34 @@ impl Default for CallOptions {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum LLMResult {
+    Generate(GenerateResult),
+    ToolCall(ToolCallResult),
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct GenerateResult {
     tokens: Option<TokenUsage>,
     generation: String,
+    tool_call: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ToolCallResult {
+    pub id: String,
+    pub name: String,
+    pub arguments: Value,
+    pub ai_message: Message,
 }
 
 impl GenerateResult {
     pub fn new(generation: String, tokens: Option<TokenUsage>) -> Self {
-        Self { generation, tokens }
+        Self {
+            generation,
+            tokens,
+            tool_call: None,
+        }
     }
 
     pub fn to_hashmap(&self) -> HashMap<String, String> {

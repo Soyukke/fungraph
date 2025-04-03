@@ -1,5 +1,5 @@
 pub mod gemini;
-pub mod llm;
+mod llm;
 pub use llm::*;
 pub mod messages;
 pub use messages::*;

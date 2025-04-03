@@ -29,4 +29,7 @@ pub enum LLMError {
 
     #[error("Error: {0}")]
     OtherError(String),
+
+    #[error("Any error: {0}")]
+    AnyhowError(#[from] anyhow::Error),
 }
