@@ -111,40 +111,4 @@ mod tests {
         assert_eq!(config.api_key, "test_api_key");
         assert_eq!(config.model, GeminiModel::Gemini20);
     }
-
-    // cargo test --lib gemini::tests::test_httpmock -- --nocapture
-    #[tokio::test]
-    async fn test_httpmock() -> Result<()> {
-        dotenvy::dotenv()?;
-        init();
-        // Start a lightweight mock server.
-        let server = MockServer::start();
-
-        // Create a mock on the server.
-        let mock = server.mock(|when, then| {
-            when.method(GET)
-                .path("/translate")
-                .query_param("word", "hello");
-            then.status(200)
-                .header("content-type", "text/html; charset=UTF-8")
-                .body("hola");
-        });
-
-        // Send an HTTP request to the mock server. This simulates your code.
-        let client = reqwest::Client::new();
-
-        let response = client
-            .get(server.url("/translate?word=hello"))
-            .send()
-            .await?;
-
-        // Ensure the specified mock was called exactly one time (or fail with a
-        // detailed error description).
-        mock.assert();
-
-        // Ensure the mock server did respond as specified.
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.text().await?, "hola");
-        Ok(())
-    }
 }
