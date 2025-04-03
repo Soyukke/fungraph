@@ -1,4 +1,5 @@
 use reqwest::Error as ReqwestError;
+use reqwest_eventsource::Error as EventSourceError;
 use serde_json::Error as SerdeJsonError;
 use thiserror::Error;
 use tokio::time::error::Elapsed;
@@ -22,6 +23,9 @@ pub enum LLMError {
 
     #[error("Content not found in response: Expected at {0}")]
     ContentNotFound(String),
+
+    #[error("EventSourceError: {0}")]
+    EventSourceError(#[from] EventSourceError),
 
     #[error("Error: {0}")]
     OtherError(String),

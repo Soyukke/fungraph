@@ -3,7 +3,7 @@ use std::pin::Pin;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 
-use crate::llm::LLMError;
+use crate::llm::{GenerateResult, LLMError};
 
 #[derive(Clone, Serialize, Default, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -173,3 +173,5 @@ pub struct ChatChoiceStream {
 
 pub type ChatCompletionResponseStream =
     Pin<Box<dyn Stream<Item = Result<CreateChatCompletionStreamResponse, LLMError>> + Send>>;
+pub type GenerateResultStream =
+    Pin<Box<dyn Stream<Item = Result<GenerateResult, LLMError>> + Send>>;

@@ -6,6 +6,7 @@ mod tests {
     };
 
     use anyhow::Result;
+    use futures::StreamExt;
     use httpmock::prelude::*;
 
     fn init_logger() {
@@ -17,12 +18,22 @@ mod tests {
     }
 
     fn mock_gemini_api(status: u16, body: &str) -> MockServer {
-        // Create a mock on the server.
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/chat/completions");
             then.status(status)
-                .header("content-type", "text/html; charset=UTF-8")
+                .header("content-type", "text/json; charset=UTF-8")
+                .body(body);
+        });
+        server
+    }
+
+    fn mock_gemini_stream_api(status: u16, body: &str) -> MockServer {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/chat/completions");
+            then.status(status)
+                .header("Content-Type", "text/event-stream") // stream 用のヘッダー
                 .body(body);
         });
         server
@@ -86,6 +97,41 @@ mod tests {
         assert!(result.is_err());
         // エラーメッセージの内容を検証する場合は、以下のようにします
         // assert_eq!(result.unwrap_err().to_string(), "...");
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test llm::gemini::tests::tests::test_invoke_stream -- --nocapture --exact
+    #[tokio::test]
+    async fn test_invoke_stream() -> Result<()> {
+        init_logger();
+
+        let body = r#"
+data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null,"index":0}],"created":1677667095,"model":"gpt-3.5-turbo-0301","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" world"},"finish_reason":null,"index":0}],"created":1677667095,"model":"gpt-3.5-turbo-0301","object":"chat.completion.chunk"}
+
+data: [DONE]
+"#;
+
+        let server = mock_gemini_stream_api(200, body);
+        let config = GeminiConfigBuilder::new()
+            .with_api_key("test_api_key") // APIキーを設定します。
+            .with_api_base(&server.url("")) // モックサーバーの URLを使用します。テスト時以外は設定不要です。
+            .build()?;
+
+        let gemini = Gemini::new(config);
+        let messages: Messages = MessagesBuilder::new()
+            .add_human_message("Translate the following sentence to Japanese: Hello, world!")
+            .build();
+        let mut stream = gemini.invoke_stream(&messages).await?;
+
+        let mut expected_values = vec!["hello", " world"];
+        while let Some(result) = stream.next().await {
+            let delta = result?;
+            assert_eq!(delta.generation(), expected_values.remove(0));
+        }
+        assert!(expected_values.is_empty());
+
         Ok(())
     }
 }

@@ -1,8 +1,11 @@
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use log::debug;
+use log::{debug, warn};
 
 use anyhow::Result;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -14,7 +17,10 @@ use crate::{
         CallOptions, GenerateResult, LLM, LLMError, Message, MessageType, Messages,
         gemini::{GeminiResponse, OpenAIContent},
     },
-    types::{ChatChoiceStream, ChatCompletionResponseStream, TokenUsage},
+    types::{
+        ChatChoiceStream, ChatCompletionResponseStream, CreateChatCompletionStreamResponse,
+        GenerateResultStream, TokenUsage,
+    },
 };
 
 use super::{GeminiConfig, GeminiRequest};
@@ -145,16 +151,11 @@ impl LLM for Gemini {
         Ok(GenerateResult::new(generation, tokens))
     }
 
-    async fn invoke_stream(
-        &self,
-        messages: &[Message],
-    ) -> Result<ChatCompletionResponseStream, LLMError> {
-        debug!("message: {:?}", messages);
-
+    async fn invoke_stream(&self, messages: &Messages) -> Result<ChatStream, LLMError> {
         let client = reqwest::Client::new();
         let url = format!("{}/chat/completions", self.config.api_base());
 
-        let request = self.build_gemini_stream_request(messages)?;
+        let request = self.build_gemini_stream_request(messages.as_ref())?;
 
         let event_source = client
             .post(&url)
@@ -163,9 +164,7 @@ impl LLM for Gemini {
             .body(serde_json::to_string(&request)?)
             .eventsource()
             .unwrap();
-        let stream: ChatCompletionResponseStream = stream(event_source).await;
-
-        Ok(stream)
+        Ok(ChatStream::new(event_source))
     }
 
     fn add_options(&mut self, options: &CallOptions) {
@@ -185,7 +184,10 @@ where
         while let Some(ev) = event_source.next().await {
             match ev {
                 Err(e) => {
-                    if let Err(_e) = tx.send(Err(LLMError::OtherError(e.to_string()))) {
+                    if let Err(_e) = tx.send(Err(LLMError::OtherError(format!(
+                        "Event source error: {}",
+                        e.to_string()
+                    )))) {
                         // rx dropped
                         break;
                     }
@@ -197,7 +199,10 @@ where
                         }
 
                         let response = match serde_json::from_str::<O>(&message.data) {
-                            Err(e) => Err(LLMError::OtherError(e.to_string())),
+                            Err(e) => Err(LLMError::OtherError(format!(
+                                "serde_json error: {}",
+                                e.to_string()
+                            ))),
                             Ok(output) => Ok(output),
                         };
 
@@ -215,6 +220,86 @@ where
     });
 
     Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx))
+}
+
+pub struct ChatStream {
+    event_source: EventSource,
+}
+
+impl ChatStream {
+    pub fn new(event_source: EventSource) -> Self {
+        Self { event_source }
+    }
+}
+
+impl Stream for ChatStream {
+    type Item = Result<GenerateResult, LLMError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        debug!("Polling for next event");
+        match Pin::new(&mut self.event_source).poll_next(cx) {
+            Poll::Ready(Some(ev)) => {
+                debug!("Received event: {:?}", ev);
+                match ev {
+                    Err(e) => {
+                        match e {
+                            reqwest_eventsource::Error::StreamEnded => {
+                                warn!("reqwest_eventsource::Error::StreamEnded: {:?}", e);
+                                Poll::Ready(None) // ストリームを終了
+                            }
+                            _ => Poll::Ready(Some(Err(LLMError::from(e)))), // エラーを伝播
+                        }
+                    }
+                    Ok(event) => match event {
+                        Event::Message(message) => {
+                            if message.data == "[DONE]" {
+                                Poll::Ready(None)
+                            } else {
+                                let response = serde_json::from_str::<
+                                    CreateChatCompletionStreamResponse,
+                                >(&message.data);
+
+                                let result = match response {
+                                    Err(e) => Err(LLMError::from(e)),
+                                    Ok(response) => {
+                                        let mut tokens = None;
+                                        if let Some(usage) = response.usage {
+                                            tokens = Some(TokenUsage {
+                                                prompt_tokens: usage.prompt_tokens,
+                                                completion_tokens: usage.completion_tokens,
+                                                total_tokens: usage.total_tokens,
+                                            });
+                                        }
+                                        let mut generation = String::new();
+                                        for choice in response.choices.iter() {
+                                            if let Some(content) = &choice.delta.content {
+                                                generation.push_str(content);
+                                            }
+                                        }
+                                        Ok(GenerateResult::new(generation, tokens))
+                                    }
+                                };
+                                Poll::Ready(Some(result))
+                            }
+                        }
+                        Event::Open => {
+                            debug!("Received Event::Open, waiting for Event::Message");
+                            cx.waker().wake_by_ref();
+                            Poll::Pending
+                        }
+                    },
+                }
+            }
+            Poll::Ready(None) => {
+                debug!("EventSource completed");
+                Poll::Ready(None)
+            }
+            Poll::Pending => {
+                debug!("EventSource pending");
+                Poll::Pending
+            }
+        }
+    }
 }
 
 impl Gemini {

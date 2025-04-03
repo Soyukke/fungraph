@@ -5,9 +5,9 @@ use std::{collections::HashMap, pin::Pin};
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{ChatCompletionResponseStream, StreamData, TokenUsage};
+use crate::types::{ChatCompletionResponseStream, GenerateResultStream, StreamData, TokenUsage};
 
-use super::{LLMError, Message, Messages};
+use super::{LLMError, Message, Messages, gemini::ChatStream};
 
 #[async_trait]
 pub trait LLM: Send + Sync {
@@ -17,10 +17,7 @@ pub trait LLM: Send + Sync {
         &self,
         messages: &[Message],
     ) -> Result<GenerateResult, LLMError>;
-    async fn invoke_stream(
-        &self,
-        messages: &[Message],
-    ) -> Result<ChatCompletionResponseStream, LLMError>;
+    async fn invoke_stream(&self, messages: &Messages) -> Result<ChatStream, LLMError>;
     fn add_options(&mut self, options: &CallOptions);
 }
 
