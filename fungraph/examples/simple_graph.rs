@@ -1,11 +1,7 @@
-use anyhow::Result;
 use async_trait::async_trait;
 use env_logger::init;
 use fungraph::{
-    llm::{
-        LLM, LLMResult, Message, Messages, error,
-        gemini::{Gemini, GeminiConfigBuilder},
-    },
+    llm::Message,
     node::{FunGraph, FunGraphBuilder, FunNode, FunState},
     *,
 };
@@ -50,18 +46,10 @@ impl FunNode<ChatbotState> for InputNode {
     }
 }
 
-struct OutputNode {
-    llm: Gemini,
-}
+#[derive(Debug)]
+struct OutputNode {}
 
-impl OutputNode {
-    fn new(api_key: &str) -> Result<Self> {
-        let gemini = Gemini::new(GeminiConfigBuilder::new().with_api_key(&api_key).build()?);
-        Ok(OutputNode { llm: gemini })
-    }
-}
-
-/// llmが回答を標準出力にメッセージを表示するステートノード
+/// 標準出力にメッセージを表示するステートノード
 #[async_trait]
 impl FunNode<ChatbotState> for OutputNode {
     fn get_name(&self) -> String {
@@ -69,21 +57,7 @@ impl FunNode<ChatbotState> for OutputNode {
     }
 
     async fn run(&self, state: ChatbotState) -> ChatbotState {
-        let message = state.message.clone().unwrap();
-        let messages = Messages::builder().add_human_message(&message).build();
-        let result = self.llm.invoke(&messages).await;
-
-        match result {
-            Ok(LLMResult::Generate(result)) => {
-                info!("Received generation: {}", result.generation());
-            }
-            Ok(LLMResult::ToolCall(tool_call)) => {
-                info!("Received tool call: {:?}", tool_call);
-            }
-            Err(e) => {
-                log::error!("Error: {}", e);
-            }
-        }
+        println!("出力: {}", state.message.clone().unwrap());
         ChatbotState {
             message: state.message,
             histories: state.histories,
@@ -96,17 +70,24 @@ struct ChatBotAgent {
 }
 
 impl ChatBotAgent {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         let input_node = InputNode {};
-        let api_key = dotenvy::var("GEMINI_API_KEY")?;
-        let output_node = OutputNode::new(&api_key)?;
+        let output_node = OutputNode {};
 
         let mut graph: FunGraph<ChatbotState> = FunGraph::new();
         let a = graph.add_node(input_node);
         let b = graph.add_node(output_node);
         graph.add_edge(a, b, "Edge AB".to_string());
+        // 制約
+        // conditionalじゃない場合はadd_edgeで同一fromで複数toを追加できないようにしたい。
+        // conditionalの場合は複数toが設定できる
 
-        Ok(ChatBotAgent { graph })
+        //let mut graph = Graph::<Box<dyn FunNode<ChatbotState>>, String>::new();
+        //let a = graph.add_node(Box::new(input_node));
+        //let b = graph.add_node(Box::new(output_node));
+        //graph.add_edge(a, b, "Edge AB".to_string());
+
+        ChatBotAgent { graph }
     }
 
     pub async fn run(&self) {
@@ -124,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init();
     debug!("Starting chatbot example");
 
-    let agent = ChatBotAgent::new()?;
+    let agent = ChatBotAgent::new();
     agent.run().await;
 
     Ok(())
