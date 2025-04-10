@@ -99,14 +99,22 @@ impl ChatBotAgent {
         let end_node_index = graph.add_node(EndFunNode {});
         let input_node_index = graph.add_node(input_node);
         let llm_node_index = graph.add_node(output_node);
-        //graph.add_edge(
-        //    start_node_index,
-        //    input_node_index,
-        //    "Start -> User".to_string(),
-        //);
-        //graph.add_edge(input_node_index, llm_node_index, "User -> LLM".to_string());
-        //graph.add_edge(llm_node_index, input_node_index, "LLM -> User".to_string());
-        //graph.add_edge(input_node_index, end_node_index, "User -> End".to_string());
+        graph.add_edge(start_node_index, input_node_index);
+        graph.add_edge_with_condition(input_node_index, llm_node_index, |state| {
+            if (state.histories.len() < 5) {
+                true
+            } else {
+                false
+            }
+        });
+        graph.add_edge(llm_node_index, input_node_index);
+        graph.add_edge_with_condition(input_node_index, end_node_index, |state| {
+            if (state.histories.len() >= 5) {
+                true
+            } else {
+                false
+            }
+        });
 
         Ok(ChatBotAgent { graph })
     }
