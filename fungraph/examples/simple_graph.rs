@@ -27,7 +27,7 @@ impl FunNode<ChatbotState> for InputNode {
         "InputNode".to_string()
     }
 
-    async fn run(&self, state: ChatbotState) -> ChatbotState {
+    async fn run(&self, state: &mut ChatbotState) {
         // 標準入力からユーザーの入力を受け取る
         println!("何か入力してください:");
         let mut input = String::new();
@@ -39,10 +39,8 @@ impl FunNode<ChatbotState> for InputNode {
         let input = input.trim();
         println!("入力された内容: {}", input);
 
-        ChatbotState {
-            message: Some(input.to_string()),
-            histories: state.histories,
-        }
+        state.message = Some(input.to_string());
+        state.histories.push(input.to_string());
     }
 }
 
@@ -56,12 +54,8 @@ impl FunNode<ChatbotState> for OutputNode {
         "OutputNode".to_string()
     }
 
-    async fn run(&self, state: ChatbotState) -> ChatbotState {
+    async fn run(&self, state: &mut ChatbotState) {
         println!("出力: {}", state.message.clone().unwrap());
-        ChatbotState {
-            message: state.message,
-            histories: state.histories,
-        }
     }
 }
 
@@ -77,7 +71,7 @@ impl ChatBotAgent {
         let mut graph: FunGraph<ChatbotState> = FunGraph::new();
         let a = graph.add_node(input_node);
         let b = graph.add_node(output_node);
-        graph.add_edge(a, b, "Edge AB".to_string());
+        graph.add_edge(a, b);
         // 制約
         // conditionalじゃない場合はadd_edgeで同一fromで複数toを追加できないようにしたい。
         // conditionalの場合は複数toが設定できる

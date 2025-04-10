@@ -3,14 +3,12 @@ use async_trait::async_trait;
 use env_logger::init;
 use fungraph::{
     llm::{
-        LLM, LLMResult, Message, Messages, error,
+        LLM, LLMResult, Messages,
         gemini::{Gemini, GeminiConfigBuilder},
     },
-    node::{FunGraph, FunGraphBuilder, FunNode, FunState},
-    *,
+    node::{EndFunNode, FunGraph, FunNode, FunState, StartFunNode},
 };
 use log::{debug, info};
-use petgraph::{Graph, data::DataMap, graph::NodeIndex, visit::IntoNeighbors};
 use std::io;
 
 #[derive(Debug)]
@@ -31,9 +29,9 @@ impl FunNode<ChatbotState> for InputNode {
         "InputNode".to_string()
     }
 
-    async fn run(&self, state: ChatbotState) -> ChatbotState {
+    async fn run(&self, state: &mut ChatbotState) {
         // 標準入力からユーザーの入力を受け取る
-        println!("何か入力してください:");
+        println!("Please type your message:");
         let mut input = String::new();
 
         io::stdin()
@@ -41,12 +39,9 @@ impl FunNode<ChatbotState> for InputNode {
             .expect("Failed to read line");
 
         let input = input.trim();
-        println!("入力された内容: {}", input);
 
-        ChatbotState {
-            message: Some(input.to_string()),
-            histories: state.histories,
-        }
+        state.message = Some(input.to_string());
+        state.histories.push(input.to_string());
     }
 }
 
@@ -68,25 +63,23 @@ impl FunNode<ChatbotState> for OutputNode {
         "OutputNode".to_string()
     }
 
-    async fn run(&self, state: ChatbotState) -> ChatbotState {
+    async fn run(&self, state: &mut ChatbotState) {
         let message = state.message.clone().unwrap();
         let messages = Messages::builder().add_human_message(&message).build();
         let result = self.llm.invoke(&messages).await;
 
         match result {
             Ok(LLMResult::Generate(result)) => {
-                info!("Received generation: {}", result.generation());
+                debug!("Received generation: {}", result.generation());
+                state.histories.push(result.generation().to_string());
+                println!("LLM: {}", result.generation());
             }
             Ok(LLMResult::ToolCall(tool_call)) => {
-                info!("Received tool call: {:?}", tool_call);
+                debug!("Received tool call: {:?}", tool_call);
             }
             Err(e) => {
                 log::error!("Error: {}", e);
             }
-        }
-        ChatbotState {
-            message: state.message,
-            histories: state.histories,
         }
     }
 }
@@ -102,9 +95,18 @@ impl ChatBotAgent {
         let output_node = OutputNode::new(&api_key)?;
 
         let mut graph: FunGraph<ChatbotState> = FunGraph::new();
-        let a = graph.add_node(input_node);
-        let b = graph.add_node(output_node);
-        graph.add_edge(a, b, "Edge AB".to_string());
+        let start_node_index = graph.add_node(StartFunNode {});
+        let end_node_index = graph.add_node(EndFunNode {});
+        let input_node_index = graph.add_node(input_node);
+        let llm_node_index = graph.add_node(output_node);
+        //graph.add_edge(
+        //    start_node_index,
+        //    input_node_index,
+        //    "Start -> User".to_string(),
+        //);
+        //graph.add_edge(input_node_index, llm_node_index, "User -> LLM".to_string());
+        //graph.add_edge(llm_node_index, input_node_index, "LLM -> User".to_string());
+        //graph.add_edge(input_node_index, end_node_index, "User -> End".to_string());
 
         Ok(ChatBotAgent { graph })
     }

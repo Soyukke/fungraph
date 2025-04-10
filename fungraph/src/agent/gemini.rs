@@ -271,7 +271,7 @@ mod tests {
                 },
                 {
                     "role": "assistant",
-                    "content": null,
+                    "content": "tool called",
                     "tool_calls": [
                 {
                     "id": "call_abc123",

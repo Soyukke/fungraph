@@ -1,7 +1,8 @@
 // node trait
 
 use async_trait::async_trait;
-use petgraph::{Direction, Graph, graph::NodeIndex};
+use log::debug;
+use petgraph::{Direction, Graph, graph::NodeIndex, visit::EdgeRef};
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -9,25 +10,46 @@ pub struct State {
     pub value: String,
 }
 
-pub trait FunState {}
+pub trait FunState: Send + Sync {}
 
 #[async_trait]
-pub trait FunNode<S: FunState> {
+pub trait FunNode<S: FunState>: Send + Sync {
     fn get_name(&self) -> String;
-    async fn run(&self, state: S) -> S;
+    async fn run(&self, state: &mut S);
 }
 
-pub enum FunEdgeType {
+pub struct StartFunNode;
+pub struct EndFunNode;
+
+#[async_trait]
+impl<S> FunNode<S> for StartFunNode
+where
+    S: FunState + 'static,
+{
+    fn get_name(&self) -> String {
+        "Start".to_string()
+    }
+    async fn run(&self, state: &mut S) {}
+}
+
+#[async_trait]
+impl<S> FunNode<S> for EndFunNode
+where
+    S: FunState + 'static,
+{
+    fn get_name(&self) -> String {
+        "End".to_string()
+    }
+    async fn run(&self, state: &mut S) {}
+}
+
+pub enum FunEdgeType<S: FunState> {
     Edge,
-    ConditionalEdge,
-}
-
-pub trait ConditionalEdge {
-    fn check(&self) -> bool;
+    ConditionalEdge(fn(&S) -> bool),
 }
 
 pub struct FunGraph<S: FunState> {
-    graph: Graph<Box<dyn FunNode<S>>, String>,
+    graph: Graph<Box<dyn FunNode<S>>, FunEdgeType<S>>,
 }
 
 impl<S> FunGraph<S>
@@ -44,8 +66,18 @@ where
         self.graph.add_node(node)
     }
 
-    pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, edge: String) {
-        self.graph.add_edge(from, to, edge);
+    pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex) {
+        self.graph.add_edge(from, to, FunEdgeType::Edge);
+    }
+
+    pub fn add_edge_with_condition(
+        &mut self,
+        from: NodeIndex,
+        to: NodeIndex,
+        condition: fn(&S) -> bool,
+    ) {
+        self.graph
+            .add_edge(from, to, FunEdgeType::ConditionalEdge(condition));
     }
 
     fn get_begin_node(&self) -> NodeIndex {
@@ -79,6 +111,7 @@ where
             })
             .collect();
         if indices.len() != 1 {
+            debug!("End node indices: {:?}", indices);
             panic!("End node is not found");
         }
         indices.first().unwrap().clone()
@@ -91,18 +124,47 @@ where
         let mut current_state = state;
         loop {
             let node = self.graph.node_weight(current_node).unwrap();
-            current_state = node.run(current_state).await;
+            node.run(&mut current_state).await;
             let next_nodes: Vec<NodeIndex> = self
                 .graph
                 .neighbors_directed(current_node, Direction::Outgoing)
                 .collect();
-            if next_nodes.len() == 0 {
+
+            let mut edges = self.graph.edges(current_node);
+
+            // update current_node
+            // Prirority: Edge > ConditionalEdge
+            let mut next_node = current_node.clone();
+            while let Some(edge) = edges.next() {
+                let source = edge.source();
+                let target = edge.target();
+                let weight = edge.weight();
+                match weight {
+                    FunEdgeType::Edge => {
+                        debug!("Edge from {:?} to {:?}", source, target);
+                        next_node = target;
+                        break;
+                    }
+                    FunEdgeType::ConditionalEdge(condition) => {
+                        if condition(&current_state) {
+                            debug!("Conditional edge from {:?} to {:?}", source, target);
+                            next_node = target;
+                            break;
+                        } else {
+                            debug!(
+                                "Conditional edge from {:?} to {:?} is not taken",
+                                source, target
+                            );
+                        }
+                    }
+                }
+            }
+            if next_node == current_node {
+                debug!("End node reached: {:?}", current_node);
                 break;
             }
-            if next_nodes.len() > 1 {
-                panic!("Multiple next nodes are not supported");
-            }
-            current_node = next_nodes.first().unwrap().clone();
+            debug!("Next node: {:?}", next_node);
+            current_node = next_node;
         }
         current_state
     }
@@ -129,5 +191,69 @@ where
 
     pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, edge: String) {
         self.graph.add_edge(from, to, edge);
+    }
+}
+
+trait ConditionalEdge {
+    type Input;
+    fn check(&self, state: &Self::Input) -> bool;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn init_logger() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[derive(Debug)]
+    struct MyState {}
+
+    impl FunState for MyState {}
+
+    struct AlwaysTrueNode;
+    impl ConditionalEdge for AlwaysTrueNode {
+        type Input = MyState;
+        fn check(&self, state: &Self::Input) -> bool {
+            debug!("AlwaysTrueNode");
+            true
+        }
+    }
+
+    struct AlwaysFalseNode;
+    impl ConditionalEdge for AlwaysFalseNode {
+        type Input = MyState;
+        fn check(&self, state: &Self::Input) -> bool {
+            debug!("AlwaysFalseNode");
+            false
+        }
+    }
+
+    // cargo test node::node::tests::test_loop_graph
+    #[tokio::test]
+    async fn test_loop_graph() {
+        init_logger();
+        let node0 = StartFunNode {};
+        let node1 = StartFunNode {};
+        let node2 = StartFunNode {};
+        let node3 = EndFunNode {};
+        let mut graph: FunGraph<MyState> = FunGraph::new();
+        let start = graph.add_node(node0);
+        let i_1 = graph.add_node(node1);
+        let i_2 = graph.add_node(node2);
+        let end = graph.add_node(node3);
+        graph.add_edge(start, i_1);
+        graph.add_edge_with_condition(i_1, i_2, |state: &MyState| {
+            debug!("i_1 -> i_2 is false");
+            false
+        });
+        graph.add_edge(i_2, i_1);
+        graph.add_edge_with_condition(i_1, end, |state: &MyState| {
+            debug!("i_1 -> i_end is true");
+            true
+        });
+
+        graph.run(MyState {}).await;
+        assert_eq!(graph.graph.node_count(), 4);
     }
 }
