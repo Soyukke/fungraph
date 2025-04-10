@@ -1,10 +1,10 @@
-use std::{any::Any, collections::HashMap};
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use log::{debug, info};
 
 use crate::{
-    llm::{self, GenerateResult, LLM, LLMError, LLMResult, Message, Messages, MessagesBuilder},
+    llm::{LLM, LLMError, LLMResult, Message, Messages, MessagesBuilder},
     tools::Tool,
 };
 
@@ -132,7 +132,7 @@ where
 {
     pub fn new(llm: T) -> Self {
         LLMAgentBuilder {
-            llm: llm,
+            llm,
             system_prompt: None,
             tools: HashMap::new(),
         }

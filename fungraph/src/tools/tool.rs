@@ -1,6 +1,5 @@
 use crate::types::openai::Parameters;
 
-use super::ToolParameters;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -25,21 +24,13 @@ pub trait Tool {
     }
 }
 
-fn to_openai_tool<T: Tool>(tool: &T) -> crate::types::openai::Tool {
-    crate::types::openai::Tool {
-        r#type: crate::types::openai::ToolType::Function,
-        function: crate::types::openai::FunctionDescription {
-            name: tool.name().into(),
-            description: tool.description().into(),
-            parameters: tool.parameters(),
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::openai::{Parameters, Property};
+    use crate::{
+        tools::ToolParameters,
+        types::openai::{Parameters, Property},
+    };
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -122,7 +113,7 @@ mod tests {
     fn test_tool_json() {
         let expected = test_expected_json_value();
         let my_tool = MyTool {};
-        let openai_tool = to_openai_tool::<MyTool>(&my_tool);
+        let openai_tool = my_tool.to_openai_tool();
         let result = serde_json::to_value(&openai_tool).unwrap();
         assert_eq!(result, expected);
     }

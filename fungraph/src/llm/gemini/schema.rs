@@ -1,7 +1,4 @@
-use crate::{
-    llm::Message,
-    types::openai::{CompletionTokensDetails, FinishReason, PromptTokensDetails, Tool},
-};
+use crate::types::openai::{CompletionTokensDetails, FinishReason, PromptTokensDetails, Tool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

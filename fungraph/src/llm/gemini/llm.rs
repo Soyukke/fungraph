@@ -18,7 +18,6 @@ use crate::{
         CallOptions, GenerateResult, LLM, LLMError, LLMResult, Message, MessageType, Messages,
         ToolCallResult,
         gemini::{GeminiResponse, OpenAIContent},
-        messages,
     },
     types::{
         TokenUsage,
@@ -83,7 +82,6 @@ impl LLM for Gemini {
                 match finish_reason {
                     FinishReason::ToolCalls => {
                         let choice = choice.clone();
-                        let assistant_message = choice.message.clone();
                         let name = choice
                             .message
                             .tool_calls
@@ -190,14 +188,14 @@ impl LLM for Gemini {
                         let finish_reason = chat_choice.finish_reason.unwrap();
                         match finish_reason {
                             FinishReason::ToolCalls => {
-                                if let Some(tool_calls) = chat_choice.delta.tool_calls {
-                                    let data = tool_calls.iter().for_each(|tool_call| {
-                                        let id = &tool_call.id;
-                                        let tool_call_type = &tool_call.r#type;
-                                        let function = &tool_call.function;
-                                        let index = &tool_call.index;
-                                    });
-                                }
+                                //if let Some(tool_calls) = chat_choice.delta.tool_calls {
+                                //    let data = tool_calls.iter().for_each(|tool_call| {
+                                //        let id = &tool_call.id;
+                                //        let tool_call_type = &tool_call.r#type;
+                                //        let function = &tool_call.function;
+                                //        let index = &tool_call.index;
+                                //    });
+                                //}
                             }
                             _ => {
                                 if let Some(content) = chat_choice.delta.content {
@@ -335,7 +333,6 @@ impl Stream for ChatStream {
                                                 total_tokens: usage.total_tokens,
                                             });
                                         }
-                                        let mut generation = String::new();
                                         if let Some(choice) = response.choices.first() {
                                             if let Some(finish_reason) = &choice.finish_reason {
                                                 match finish_reason {
@@ -479,7 +476,7 @@ impl OpenAIMessages for Messages {
     }
 
     fn to_json_value(&self) -> Value {
-        let mut contents: Vec<OpenAIContent> = self.to_openai_messages();
+        let contents: Vec<OpenAIContent> = self.to_openai_messages();
         serde_json::to_value(contents).unwrap()
     }
 }
