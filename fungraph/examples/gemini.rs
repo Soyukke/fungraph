@@ -1,8 +1,5 @@
 use env_logger::init;
-use fungraph::llm::{
-    LLM, LLMResult, Messages,
-    gemini::{Gemini, GeminiConfigBuilder},
-};
+use fungraph_llm::{gemini::{Gemini, GeminiConfigBuilder}, LLMResult, Messages, LLM};
 use log::{debug, info};
 
 #[tokio::main]

@@ -1,5 +1,5 @@
 use env_logger::init;
-use fungraph::llm::{
+use fungraph_llm::{
     LLM, LLMResult, Messages,
     gemini::{Gemini, GeminiConfigBuilder},
 };

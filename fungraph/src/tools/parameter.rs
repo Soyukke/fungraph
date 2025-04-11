@@ -1,4 +1,4 @@
-use crate::types::openai::Parameters;
+use fungraph_llm::openai::Parameters;
 
 pub trait ToolParameters {
     fn parameters() -> Parameters;
@@ -8,9 +8,8 @@ pub trait ToolParameters {
 mod tests {
     use std::collections::HashMap;
 
+    use fungraph_llm::openai::Property;
     use serde_json::json;
-
-    use crate::types::openai::Property;
 
     use super::*;
 

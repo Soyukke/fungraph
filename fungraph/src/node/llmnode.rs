@@ -1,4 +1,4 @@
-use crate::llm::{LLM, MessagesBuilder};
+use fungraph_llm::{LLM, MessagesBuilder};
 
 // llmに入力し、出力する処理を実装する
 pub struct SimpleLLM<T: LLM> {

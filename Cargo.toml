@@ -1,6 +1,5 @@
 [workspace]
 members = [
     "fungraph",
-    "fungraph_derive",
+    "fungraph_derive", "fungraph_llm",
 ]
-

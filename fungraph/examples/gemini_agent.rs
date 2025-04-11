@@ -1,12 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use env_logger::init;
-use fungraph::agent::LLMAgent;
+use fungraph::{agent::LLMAgent, tools::FunTool};
 use fungraph::tools::ToolParameters;
-use fungraph::types::openai::Parameters;
-use fungraph::{
-    llm::gemini::{Gemini, GeminiConfigBuilder},
-    tools::Tool,
+use fungraph_llm::openai::Parameters;
+use fungraph_llm::{
+    gemini::{Gemini, GeminiConfigBuilder},
+    openai::Tool,
 };
 use log::{debug, info};
 use serde_json::Value;
@@ -20,7 +20,7 @@ struct WeatherToolParameters {
 }
 
 #[async_trait]
-impl Tool for WeatherTool {
+impl FunTool for WeatherTool {
     fn name(&self) -> &'static str {
         "weather_tool"
     }

@@ -1,14 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use env_logger::init;
-use fungraph::tools::ToolParameters;
-use fungraph::types::openai::Parameters;
-use fungraph::{
-    llm::{
-        LLM, LLMResult, Messages,
-        gemini::{Gemini, GeminiConfigBuilder},
-    },
-    tools::Tool,
+use fungraph::tools::{FunTool, ToolParameters};
+use fungraph_llm::{
+    LLM, LLMResult, Messages,
+    gemini::{Gemini, GeminiConfigBuilder},
+    openai::Parameters,
 };
 use log::{debug, info};
 use serde_json::Value;
@@ -16,14 +13,19 @@ use tokio_stream::StreamExt;
 
 struct WeatherTool;
 
-#[derive(ToolParameters)]
 struct WeatherToolParameters {
     /// 天気を取得したい場所を指定します。例. "東京"
     location: String,
 }
 
+impl ToolParameters for WeatherToolParameters {
+    fn parameters() -> fungraph_llm::openai::Parameters {
+        todo!()
+    }
+}
+
 #[async_trait]
-impl Tool for WeatherTool {
+impl FunTool for WeatherTool {
     fn name(&self) -> &'static str {
         "weather_tool"
     }
@@ -55,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_human_message("今日の東京の天気は？")
         .add_tools(vec![tool.to_openai_tool()])
         .build();
-    let mut response = gemini.invoke(&messages).await?;
+    let response = gemini.invoke(&messages).await?;
 
     match response {
         LLMResult::Generate(result) => {

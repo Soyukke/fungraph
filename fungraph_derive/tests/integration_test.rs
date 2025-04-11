@@ -1,4 +1,5 @@
-use fungraph::{tools::ToolParameters, types::openai::Parameters};
+use fungraph::tools::ToolParameters;
+use fungraph_llm::openai::Parameters;
 
 #[derive(ToolParameters)]
 struct MyTool {

@@ -15,3 +15,4 @@ serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 fungraph = { path = "../fungraph" }
+fungraph_llm = { path = "../fungraph_llm" }

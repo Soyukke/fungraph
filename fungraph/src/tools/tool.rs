@@ -1,21 +1,20 @@
-use crate::types::openai::Parameters;
-
 use anyhow::Result;
 use async_trait::async_trait;
+use fungraph_llm::openai::{FunctionDescription, Parameters, Tool, ToolType};
 use serde_json::Value;
 use std::string::String;
 
 #[async_trait]
-pub trait Tool {
+pub trait FunTool {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn parameters(&self) -> Parameters;
     async fn call(&self, input: &Value) -> Result<String>;
 
-    fn to_openai_tool(&self) -> crate::types::openai::Tool {
-        crate::types::openai::Tool {
-            r#type: crate::types::openai::ToolType::Function,
-            function: crate::types::openai::FunctionDescription {
+    fn to_openai_tool(&self) -> Tool {
+        Tool {
+            r#type: ToolType::Function,
+            function: FunctionDescription {
                 name: self.name().into(),
                 description: self.description().into(),
                 parameters: self.parameters(),
@@ -26,11 +25,10 @@ pub trait Tool {
 
 #[cfg(test)]
 mod tests {
+    use crate::tools::ToolParameters;
+
     use super::*;
-    use crate::{
-        tools::ToolParameters,
-        types::openai::{Parameters, Property},
-    };
+    use fungraph_llm::openai::Property;
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -67,7 +65,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl Tool for MyTool {
+    impl FunTool for MyTool {
         fn name(&self) -> &'static str {
             "get_weather"
         }

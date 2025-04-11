@@ -41,7 +41,7 @@ fn impl_tool_parameters(ast: &DeriveInput) -> Result<TokenStream> {
             let prop = match description {
                 Some(desc) => {
                     quote! {
-                        fungraph::types::openai::Property {
+                        fungraph_llm::openai::Property {
                             r#type: #data_type.to_string(),
                             description: Some(#desc.to_string()),
                             enum_values: None,
@@ -50,7 +50,7 @@ fn impl_tool_parameters(ast: &DeriveInput) -> Result<TokenStream> {
                 }
                 None => {
                     quote! {
-                        fungraph::types::openai::Property {
+                        fungraph_llm::openai::Property {
                             r#type: #data_type.to_string(),
                             description: None,
                             enum_values: None,
@@ -84,8 +84,8 @@ fn impl_tool_parameters(ast: &DeriveInput) -> Result<TokenStream> {
 
     let gen_code = quote! {
         impl fungraph::tools::ToolParameters for #name {
-            fn parameters() -> fungraph::types::openai::Parameters {
-                fungraph::types::openai::Parameters {
+            fn parameters() -> fungraph_llm::openai::Parameters {
+                fungraph_llm::openai::Parameters {
                     r#type: "object".to_string(),
                     properties: {
                         let mut map = std::collections::HashMap::new();

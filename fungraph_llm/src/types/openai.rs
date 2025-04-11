@@ -3,7 +3,7 @@ use std::{collections::HashMap, pin::Pin};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 
-use crate::llm::{GenerateResult, LLMError};
+use crate::{GenerateResult, LLMError};
 
 #[derive(Clone, Serialize, Default, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]

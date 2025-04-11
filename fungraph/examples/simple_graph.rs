@@ -1,10 +1,6 @@
 use async_trait::async_trait;
 use env_logger::init;
-use fungraph::{
-    llm::Message,
-    node::{FunGraph, FunGraphBuilder, FunNode, FunState},
-    *,
-};
+use fungraph::node::{FunGraph, FunGraphBuilder, FunNode, FunState};
 use log::{debug, info};
 use petgraph::{Graph, data::DataMap, graph::NodeIndex, visit::IntoNeighbors};
 use std::io;
@@ -23,8 +19,8 @@ struct InputNode {}
 /// ユーザーからの入力を受け取るステートノード
 #[async_trait]
 impl FunNode<ChatbotState> for InputNode {
-    fn get_name(&self) -> String {
-        "InputNode".to_string()
+    fn get_name(&self) -> &'static str {
+        "InputNode"
     }
 
     async fn run(&self, state: &mut ChatbotState) {
@@ -50,8 +46,8 @@ struct OutputNode {}
 /// 標準出力にメッセージを表示するステートノード
 #[async_trait]
 impl FunNode<ChatbotState> for OutputNode {
-    fn get_name(&self) -> String {
-        "OutputNode".to_string()
+    fn get_name(&self) -> &'static str {
+        "OutputNode"
     }
 
     async fn run(&self, state: &mut ChatbotState) {
@@ -72,14 +68,6 @@ impl ChatBotAgent {
         let a = graph.add_node(input_node);
         let b = graph.add_node(output_node);
         graph.add_edge(a, b);
-        // 制約
-        // conditionalじゃない場合はadd_edgeで同一fromで複数toを追加できないようにしたい。
-        // conditionalの場合は複数toが設定できる
-
-        //let mut graph = Graph::<Box<dyn FunNode<ChatbotState>>, String>::new();
-        //let a = graph.add_node(Box::new(input_node));
-        //let b = graph.add_node(Box::new(output_node));
-        //graph.add_edge(a, b, "Edge AB".to_string());
 
         ChatBotAgent { graph }
     }

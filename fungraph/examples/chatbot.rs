@@ -1,12 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use env_logger::init;
-use fungraph::{
-    llm::{
-        LLM, LLMResult, Messages,
-        gemini::{Gemini, GeminiConfigBuilder},
-    },
-    node::{EndFunNode, FunGraph, FunNode, FunState, StartFunNode},
+use fungraph::node::{EndFunNode, FunGraph, FunNode, FunState, StartFunNode};
+use fungraph_llm::{
+    LLM, LLMResult, Messages,
+    gemini::{Gemini, GeminiConfigBuilder},
 };
 use log::{debug, info};
 use std::io;
@@ -25,8 +23,8 @@ struct InputNode {}
 /// ユーザーからの入力を受け取るステートノード
 #[async_trait]
 impl FunNode<ChatbotState> for InputNode {
-    fn get_name(&self) -> String {
-        "InputNode".to_string()
+    fn get_name(&self) -> &'static str {
+        "InputNode"
     }
 
     async fn run(&self, state: &mut ChatbotState) {
@@ -59,8 +57,8 @@ impl OutputNode {
 /// llmが回答を標準出力にメッセージを表示するステートノード
 #[async_trait]
 impl FunNode<ChatbotState> for OutputNode {
-    fn get_name(&self) -> String {
-        "OutputNode".to_string()
+    fn get_name(&self) -> &'static str {
+        "OutputNode"
     }
 
     async fn run(&self, state: &mut ChatbotState) {
@@ -95,26 +93,15 @@ impl ChatBotAgent {
         let output_node = OutputNode::new(&api_key)?;
 
         let mut graph: FunGraph<ChatbotState> = FunGraph::new();
-        let start_node_index = graph.add_node(StartFunNode {});
-        let end_node_index = graph.add_node(EndFunNode {});
         let input_node_index = graph.add_node(input_node);
         let llm_node_index = graph.add_node(output_node);
-        graph.add_edge(start_node_index, input_node_index);
-        graph.add_edge_with_condition(input_node_index, llm_node_index, |state| {
-            if (state.histories.len() < 5) {
-                true
-            } else {
-                false
-            }
+
+        graph.add_start_edge(input_node_index);
+        graph.add_conditional_edge(input_node_index, llm_node_index, |state| {
+            state.histories.len() < 5
         });
         graph.add_edge(llm_node_index, input_node_index);
-        graph.add_edge_with_condition(input_node_index, end_node_index, |state| {
-            if (state.histories.len() >= 5) {
-                true
-            } else {
-                false
-            }
-        });
+        graph.add_conditional_end_edge(input_node_index, |state| state.histories.len() >= 5);
 
         Ok(ChatBotAgent { graph })
     }

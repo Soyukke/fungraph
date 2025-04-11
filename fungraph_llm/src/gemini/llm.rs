@@ -14,17 +14,15 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{
-    llm::{
+    TokenUsage,
+    openai::{
+        ChatChoiceStream, ChatCompletionResponseStream, CreateChatCompletionStreamResponse,
+        FinishReason,
+    },
+    {
         CallOptions, GenerateResult, LLM, LLMError, LLMResult, Message, MessageType, Messages,
         ToolCallResult,
         gemini::{GeminiResponse, OpenAIContent},
-    },
-    types::{
-        TokenUsage,
-        openai::{
-            ChatChoiceStream, ChatCompletionResponseStream, CreateChatCompletionStreamResponse,
-            FinishReason,
-        },
     },
 };
 
@@ -534,10 +532,8 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        llm::{
-            LLM, LLMResult, Messages, MessagesBuilder,
-            gemini::{Gemini, GeminiConfigBuilder, GeminiModel},
-        },
+        LLM, LLMResult, Messages, MessagesBuilder,
+        gemini::{Gemini, GeminiConfigBuilder, GeminiModel},
         types::openai::Tool,
     };
 
