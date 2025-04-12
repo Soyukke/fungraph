@@ -1,8 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use env_logger::init;
-use fungraph::{agent::LLMAgent, tools::FunTool};
 use fungraph::tools::ToolParameters;
+use fungraph::{agent::LLMAgent, tools::FunTool};
 use fungraph_llm::openai::Parameters;
 use fungraph_llm::{
     gemini::{Gemini, GeminiConfigBuilder},
@@ -21,19 +21,19 @@ struct WeatherToolParameters {
 
 #[async_trait]
 impl FunTool for WeatherTool {
-    fn name(&self) -> &'static str {
-        "weather_tool"
+    fn name(&self) -> String {
+        "weather_tool".into()
     }
 
-    fn description(&self) -> &'static str {
-        "指定した場所の天気を取得します。レスポンス例: 晴れ"
+    fn description(&self) -> String {
+        "指定した場所の天気を取得します。レスポンス例: 晴れ".into()
     }
 
     fn parameters(&self) -> Parameters {
         WeatherToolParameters::parameters()
     }
 
-    async fn call(&self, input: &Value) -> Result<String> {
+    async fn call(&self, input: Value) -> Result<String> {
         debug!("Calling weather tool with input: {}", input);
         Ok("Sunny".into())
     }

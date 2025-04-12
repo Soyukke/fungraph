@@ -6,10 +6,10 @@ use std::string::String;
 
 #[async_trait]
 pub trait FunTool {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn name(&self) -> String;
+    fn description(&self) -> String;
     fn parameters(&self) -> Parameters;
-    async fn call(&self, input: &Value) -> Result<String>;
+    async fn call(&self, input: Value) -> Result<String>;
 
     fn to_openai_tool(&self) -> Tool {
         Tool {
@@ -66,16 +66,16 @@ mod tests {
 
     #[async_trait]
     impl FunTool for MyTool {
-        fn name(&self) -> &'static str {
-            "get_weather"
+        fn name(&self) -> String {
+            "get_weather".into()
         }
-        fn description(&self) -> &'static str {
-            "Get the current weather in a given location"
+        fn description(&self) -> String {
+            "Get the current weather in a given location".into()
         }
         fn parameters(&self) -> Parameters {
             MyToolParameters::parameters()
         }
-        async fn call(&self, input: &Value) -> Result<String> {
+        async fn call(&self, input: Value) -> Result<String> {
             Ok("test".into())
         }
     }

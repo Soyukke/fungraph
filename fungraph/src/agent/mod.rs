@@ -68,7 +68,7 @@ where
                 messages.add_message(tool_call_result.ai_message.clone());
                 let target_tool = self.tools.get(&tool_call_result.name);
                 if let Some(tool) = target_tool {
-                    let result = tool.call(&tool_call_result.arguments).await;
+                    let result = tool.call(tool_call_result.arguments).await;
                     let tool_message =
                         Message::new_tool_message(result?, &tool_call_result.id.to_string());
                     messages.add_message(tool_message);
@@ -267,16 +267,16 @@ mod tests {
 
     #[async_trait]
     impl FunTool for MyTool {
-        fn name(&self) -> &'static str {
-            "get_weather"
+        fn name(&self) -> String {
+            "get_weather".into()
         }
-        fn description(&self) -> &'static str {
-            "Get the current weather in a given location"
+        fn description(&self) -> String {
+            "Get the current weather in a given location".into()
         }
         fn parameters(&self) -> Parameters {
             MyToolParameters::parameters()
         }
-        async fn call(&self, input: &Value) -> Result<String> {
+        async fn call(&self, input: Value) -> Result<String> {
             info!("Calling weather tool with input: {}", input);
             Ok("現在の東京の天気は晴れ、気温は25度です。".into())
         }

@@ -196,7 +196,7 @@ pub struct FunctionDescription {
     pub parameters: Parameters,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Parameters {
     #[serde(rename = "type")]
     pub r#type: String,
@@ -204,7 +204,7 @@ pub struct Parameters {
     pub required: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Property {
     #[serde(rename = "type")]
     pub r#type: String,
