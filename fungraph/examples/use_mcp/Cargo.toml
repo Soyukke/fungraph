@@ -1,0 +1,31 @@
+[package]
+name = "use_mcp"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+env_logger = "0.11.7"
+log = "0.4.27"
+petgraph = "0.6"
+async-trait = "0.1.80"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0.0"
+futures = "0.3"
+dotenvy = "0.15.7"
+reqwest-eventsource = "0.6.0"
+tokio-stream = "0.1.15"
+anyhow = "1.0.97"
+fungraph= { path = "../../../fungraph" }
+fungraph_llm = { path = "../../../fungraph_llm" }
+fungraph_derive = { path = "../../../fungraph_derive" }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", features = [
+    "client",
+    "transport-child-process",
+    "transport-sse",
+] }
+toml = "0.8"

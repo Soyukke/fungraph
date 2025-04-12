@@ -94,7 +94,7 @@ fn impl_tool_parameters(ast: &DeriveInput) -> Result<TokenStream> {
                         )*
                         map
                     },
-                    required: vec![#(#required_fields.to_string()),*],
+                    required: Some(vec![#(#required_fields.to_string()),*]),
                 }
             }
         }

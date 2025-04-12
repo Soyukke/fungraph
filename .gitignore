@@ -1,4 +1,4 @@
-/target
+target
 Cargo.lock
 .env
 .idea/
@@ -8,3 +8,4 @@ Thumbs.db
 *.swp
 *.swo
 *~
+

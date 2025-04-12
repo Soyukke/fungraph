@@ -34,7 +34,7 @@ mod tests {
                     ("param1".to_string(), value1),
                     ("param2".to_string(), value2),
                 ]),
-                required: vec!["param1".to_string()],
+                required: Some(vec!["param1".to_string()]),
             }
         }
     }

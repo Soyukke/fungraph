@@ -1,3 +1,8 @@
+// Partially based on code from:
+// https://github.com/modelcontextprotocol/rust-sdk
+// MIT License: https://github.com/modelcontextprotocol/rust-sdk/blob/main/LICENSE
+// Copyright (c) 2025 Model Context Protocol
+
 use anyhow::Result;
 use async_trait::async_trait;
 use fungraph_llm::openai::Parameters;

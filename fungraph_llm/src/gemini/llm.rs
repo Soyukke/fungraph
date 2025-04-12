@@ -604,7 +604,7 @@ mod tests {
                 parameters: crate::types::openai::Parameters {
                     r#type: "object".to_string(),
                     properties: HashMap::new(),
-                    required: vec![],
+                    required: Some(vec![]),
                 },
             },
         }];

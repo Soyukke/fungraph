@@ -201,7 +201,7 @@ pub struct Parameters {
     #[serde(rename = "type")]
     pub r#type: String,
     pub properties: HashMap<String, Property>,
-    pub required: Vec<String>,
+    pub required: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -231,7 +231,7 @@ mod tests {
                 parameters: Parameters {
                     r#type: "object".to_string(),
                     properties: HashMap::new(),
-                    required: vec!["param1".to_string()],
+                    required: Some(vec!["param1".to_string()]),
                 },
             },
         };

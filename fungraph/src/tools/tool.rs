@@ -59,7 +59,7 @@ mod tests {
             Parameters {
                 r#type: "object".to_string(),
                 properties: props,
-                required: vec!["location".to_string()],
+                required: Some(vec!["location".to_string()]),
             }
         }
     }

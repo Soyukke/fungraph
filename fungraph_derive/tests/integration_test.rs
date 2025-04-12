@@ -38,7 +38,7 @@ fn test_generated_parameters() {
     // required フィールドの検証
     assert_eq!(
         parameters.required,
-        vec!["name".to_string(), "age".to_string()]
+        Some(vec!["name".to_string(), "age".to_string()])
     );
 
     // properties フィールドの検証
@@ -72,7 +72,7 @@ fn test_option_parameter() {
     // required フィールドの検証
     assert_eq!(
         parameters.required,
-        vec!["name".to_string(), "age".to_string()]
+        Some(vec!["name".to_string(), "age".to_string()])
     );
     // properties フィールドの検証
     assert_eq!(parameters.properties.len(), 2); // プロパティの数を確認

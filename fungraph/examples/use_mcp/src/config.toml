@@ -1,0 +1,13 @@
+# example mcp
+[mcp]
+[[mcp.server]]
+name = "filesystem"
+protocol = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Downloads"]
+
+[[mcp.server]]
+name = "memory"
+protocol = "stdio"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
