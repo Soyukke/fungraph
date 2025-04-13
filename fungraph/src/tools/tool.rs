@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::string::String;
 
 #[async_trait]
-pub trait FunTool {
+pub trait FunTool: Send + Sync {
     fn name(&self) -> String;
     fn description(&self) -> String;
     fn parameters(&self) -> Parameters;

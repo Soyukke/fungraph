@@ -2,13 +2,13 @@ use std::{collections::HashMap, io, path::Path, process::Stdio};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use fungraph_llm::LLM;
+use fungraph_llm::{LLM, gemini::Gemini};
 use rmcp::{RoleClient, ServiceExt, service::RunningService};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     agent::LLMAgent,
-    node::{FunNode, FunState},
+    node::{FunGraph, FunNode, FunState},
     tools::{FunTool, mcp_tool::get_mcp_tools},
 };
 
@@ -22,11 +22,10 @@ struct InputNode {}
 #[async_trait]
 impl FunNode<MCPAgentState> for InputNode {
     fn get_name(&self) -> &'static str {
-        "InputNode"
+        "UserInput"
     }
 
     async fn run(&self, state: &mut MCPAgentState) {
-        // 標準入力からユーザーの入力を受け取る
         println!("Please type your message:");
         let mut input = String::new();
 
@@ -36,6 +35,30 @@ impl FunNode<MCPAgentState> for InputNode {
 
         let input = input;
         state.user_input = Some(input.trim().to_string());
+    }
+}
+
+struct ResolverNode<T: LLM> {
+    agent: LLMAgent<T>,
+}
+
+#[async_trait]
+impl<T> FunNode<MCPAgentState> for ResolverNode<T>
+where
+    T: LLM,
+{
+    fn get_name(&self) -> &'static str {
+        "Resolver"
+    }
+
+    async fn run(&self, state: &mut MCPAgentState) {
+        if let Some(user_input) = &state.user_input {
+            let result = self.agent.chat(user_input).await.unwrap();
+            println!("LLM response: {:?}", result);
+        } else {
+            println!("No user input provided.");
+            return;
+        }
     }
 }
 
@@ -66,7 +89,16 @@ where
     }
 }
 
-struct MCPAgentBuilder<T: LLM> {
+impl<T> Into<LLMAgent<T>> for MCPAgent<T>
+where
+    T: LLM,
+{
+    fn into(self) -> LLMAgent<T> {
+        self.agent
+    }
+}
+
+pub struct MCPAgentBuilder<T: LLM> {
     llm: T,
     system_prompt: Option<String>,
     mcp_config_path: Option<String>,
@@ -126,6 +158,18 @@ where
         let agent = builder.build()?;
         Ok(MCPAgent { agent })
     }
+}
+
+fn build_graph<T: LLM + 'static>(agent: LLMAgent<T>) -> FunGraph<MCPAgentState> {
+    let input_node = InputNode {};
+    let resolver_node = ResolverNode { agent: agent };
+    let mut graph = FunGraph::new();
+    let input_node_index = graph.add_node(input_node);
+    let resolver_node_index = graph.add_node(resolver_node);
+    graph.add_start_edge(input_node_index);
+    graph.add_edge(input_node_index, resolver_node_index);
+    graph.add_edge(resolver_node_index, input_node_index);
+    graph
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -234,4 +278,20 @@ mod tests {
         assert_eq!(agent.tools().len(), 0);
         Ok(())
     }
+
+    //#[tokio::test]
+    //async fn test_mcp_agent_run() -> Result<()> {
+    //    let api_key = "test";
+    //    let llm = Gemini::new(GeminiConfigBuilder::new().with_api_key(&api_key).build()?);
+    //    // FunGraph wrapper
+    //    let agent = MCPAgent::builder(llm)
+    //        .with_system_prompt("test prompt")
+    //        .with_mcp_config_path("examples/use_mcp/src/config2.toml")
+    //        .build()
+    //        .await?;
+    //    let agent = agent.run().await;
+    //    agent_iter.next().await;
+    //    assert_eq!(agent.current_node_name(), "User Input");
+    //    Ok(())
+    //}
 }

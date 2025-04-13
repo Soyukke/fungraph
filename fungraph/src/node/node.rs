@@ -143,52 +143,65 @@ where
     }
 
     pub async fn run(&self, state: S) -> S {
-        let begin_node = self.get_begin_node();
-        let _end_node = self.get_end_node();
-        let mut current_node = begin_node;
+        let mut current_node = self.get_start_node_index();
         let mut current_state = state;
-        loop {
-            let node = self.graph.node_weight(current_node).unwrap();
-            node.run(&mut current_state).await;
-            let mut edges = self.graph.edges(current_node);
 
-            // Prirority: Edge > ConditionalEdge
-            let mut next_node = current_node.clone();
-            while let Some(edge) = edges.next() {
-                let source = edge.source();
-                let target = edge.target();
-                let source_name = self.graph[source].get_name();
-                let target_name = self.graph[target].get_name();
-                let weight = edge.weight();
-                match weight {
-                    FunEdgeType::Edge => {
-                        debug!("Edge from {:?} to {:?}", source_name, target_name);
-                        next_node = target;
-                        break;
-                    }
-                    FunEdgeType::ConditionalEdge(condition) => {
-                        if condition(&current_state) {
-                            debug!(
-                                "Conditional edge from {:?} to {:?}",
-                                source_name, target_name
-                            );
-                            next_node = target;
-                            break;
-                        } else {
-                            debug!(
-                                "Conditional edge from {:?} to {:?} is not taken",
-                                source_name, target_name
-                            );
-                        }
+        while !self.is_end_node(current_node) {
+            let (next_node, new_state) = self.run_step(current_node, current_state).await;
+            current_state = new_state;
+
+            match next_node {
+                Some(node) => {
+                    current_node = node;
+                }
+                None => {
+                    // 次のノードがない場合の処理
+                    break;
+                }
+            }
+        }
+
+        current_state
+    }
+
+    pub fn get_start_node_index(&self) -> NodeIndex {
+        self.start_node_index
+    }
+
+    pub fn is_end_node(&self, node_index: NodeIndex) -> bool {
+        node_index == self.end_node_index
+    }
+
+    pub async fn run_step(&self, current_node: NodeIndex, mut state: S) -> (Option<NodeIndex>, S) {
+        let node = self.graph.node_weight(current_node).unwrap();
+        node.run(&mut state).await;
+
+        match self.get_next_node_index(current_node, &state) {
+            Some(next_node) => (Some(next_node), state),
+            None => (None, state),
+        }
+    }
+
+    pub fn get_next_node_index(&self, current_node: NodeIndex, state: &S) -> Option<NodeIndex> {
+        let mut edges = self.graph.edges(current_node);
+
+        while let Some(edge) = edges.next() {
+            let target = edge.target();
+            let weight = edge.weight();
+
+            match weight {
+                FunEdgeType::Edge => {
+                    return Some(target);
+                }
+                FunEdgeType::ConditionalEdge(condition) => {
+                    if condition(state) {
+                        return Some(target);
                     }
                 }
             }
-            if next_node == current_node {
-                break;
-            }
-            current_node = next_node;
         }
-        current_state
+
+        None
     }
 }
 
