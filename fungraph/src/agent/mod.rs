@@ -1,3 +1,5 @@
+mod mcp_agent;
+pub use mcp_agent::*;
 use std::collections::HashMap;
 
 use fungraph_llm::{LLM, LLMError, LLMResult, Message, Messages, MessagesBuilder};
@@ -112,7 +114,7 @@ where
     pub fn build(self) -> Result<LLMAgent<T>, anyhow::Error> {
         Ok(LLMAgent {
             llm: self.llm,
-            system_prompt: None,
+            system_prompt: self.system_prompt.unwrap().content,
             tools: self.tools,
         })
     }
@@ -348,6 +350,10 @@ mod tests {
         json!(
           [
             {
+              "role": "system",
+              "content": "あなたは親切なアシスタントです。"
+            },
+            {
               "role": "user",
               "content": "現在の東京の天気を調べてください。"
             }
@@ -358,6 +364,10 @@ mod tests {
     fn test_request_messages_2() -> Value {
         json!(
             [
+                {
+                  "role": "system",
+                  "content": "あなたは親切なアシスタントです。"
+                },
                 {
                     "role": "user",
                     "content": "現在の東京の天気を調べてください。"
@@ -418,7 +428,7 @@ mod tests {
 
         assert_eq!(results.len(), 2);
         assert_eq!(
-            results[0].request.messages[0].content,
+            results[0].request.messages[1].content, // 0 is system_prompt
             messages_1.messages[0].content
         );
 
