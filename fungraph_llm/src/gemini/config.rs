@@ -26,6 +26,7 @@ pub struct GeminiConfig {
     api_base: String,
     api_key: String,
     model: GeminiModel,
+    is_json_response: bool,
 }
 
 impl Default for GeminiConfig {
@@ -34,6 +35,7 @@ impl Default for GeminiConfig {
             api_base: "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
             api_key: "".to_string(),
             model: GeminiModel::Gemini15,
+            is_json_response: false,
         }
     }
 }
@@ -47,6 +49,9 @@ impl GeminiConfig {
     }
     pub fn model(&self) -> &GeminiModel {
         &self.model
+    }
+    pub fn is_json_response(&self) -> bool {
+        self.is_json_response
     }
 }
 
@@ -70,6 +75,10 @@ impl GeminiConfigBuilder {
     }
     pub fn with_model(mut self, model: GeminiModel) -> Self {
         self.config.model = model;
+        self
+    }
+    pub fn with_json_response(mut self) -> Self {
+        self.config.is_json_response = true;
         self
     }
     pub fn build(self) -> Result<GeminiConfig> {

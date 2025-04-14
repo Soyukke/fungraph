@@ -14,15 +14,12 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::{
-    TokenUsage,
+    CallOptions, GenerateResult, LLM, LLMError, LLMResult, Message, MessageType, Messages,
+    TokenUsage, ToolCallResult,
+    gemini::{GeminiResponse, OpenAIContent},
     openai::{
         ChatChoiceStream, ChatCompletionResponseStream, CreateChatCompletionStreamResponse,
-        FinishReason,
-    },
-    {
-        CallOptions, GenerateResult, LLM, LLMError, LLMResult, Message, MessageType, Messages,
-        ToolCallResult,
-        gemini::{GeminiResponse, OpenAIContent},
+        FinishReason, OpenAIResponseFormat, OpenAIResponseFormatType,
     },
 };
 
@@ -501,12 +498,21 @@ impl Gemini {
 
         let stream = if is_stream { Some(true) } else { None };
 
+        let response_format = if self.config.is_json_response() {
+            Some(OpenAIResponseFormat {
+                r#type: OpenAIResponseFormatType::JsonObject,
+            })
+        } else {
+            None
+        };
+
         let gemini_request = GeminiRequest {
             messages: contents,
             model: self.config.model().clone().into(),
             stream,
             tools,
             tool_choice,
+            response_format,
         };
         debug!(
             "Gemini Request json: {:?}",

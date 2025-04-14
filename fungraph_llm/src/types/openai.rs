@@ -223,6 +223,18 @@ pub struct Items {
     pub r#type: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct OpenAIResponseFormat {
+    #[serde(rename = "type")]
+    pub r#type: OpenAIResponseFormatType,
+}
+
+#[derive(Clone, Serialize, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAIResponseFormatType {
+    JsonObject,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

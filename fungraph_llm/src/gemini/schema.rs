@@ -1,4 +1,7 @@
-use crate::types::openai::{CompletionTokensDetails, FinishReason, PromptTokensDetails, Tool};
+use crate::{
+    openai::OpenAIResponseFormat,
+    types::openai::{CompletionTokensDetails, FinishReason, PromptTokensDetails, Tool},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -133,4 +136,6 @@ pub struct GeminiRequest {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<OpenAIResponseFormat>,
 }
