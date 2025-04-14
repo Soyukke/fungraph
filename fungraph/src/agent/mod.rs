@@ -1,6 +1,7 @@
 mod mcp_agent;
+use futures::Stream;
 pub use mcp_agent::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, pin::Pin, task::{Context, Poll}, thread::sleep, time::Duration};
 
 use fungraph_llm::{LLM, LLMError, LLMResult, Message, Messages, MessagesBuilder};
 use log::{debug, info};
@@ -8,6 +9,32 @@ use log::{debug, info};
 use crate::tools::FunTool;
 
 pub type Conversations = Vec<Conversation>;
+
+#[derive(Debug)]
+pub struct AgentResponse {
+    pub final_answer: String,
+    pub intermediate_steps: Vec<Conversation>,
+}
+
+pub struct AgentStream {}
+
+impl Stream for MyDataStream {
+    type Item = NextAction;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(Some(NextAction::ToolCall))
+    }
+}
+
+
+/// ツール呼び出し要求
+/// 普通の回答
+/// LLM問い合わせ
+pub enum NextAction {
+    ToolCall,
+    Response,
+    Request,
+}
 
 #[derive(Debug)]
 pub struct Conversation {
@@ -74,7 +101,14 @@ where
         builder.build()
     }
 
-    pub async fn invoke(&self, messages: &Messages) -> Result<Conversations, LLMError> {
+    async fn start(
+        &self,
+        messages: &Messages,
+    ) -> Result<AgentStream, LLMError> {
+        let mut messages = self.build_messages2(messages);
+    }
+
+    pub async fn invoke(&self, messages: &Messages) -> Result<AgentResponse, LLMError> {
         let mut messages = messages.clone();
         let mut messages = self.build_messages2(&mut messages);
         let result = self.llm.invoke(&messages).await?;
@@ -83,9 +117,9 @@ where
             response: result.clone(),
         }];
 
-        match result {
+        let final_answer = match result {
             LLMResult::Generate(_generate_result) => {
-                // Stop
+                _generate_result.generation()
             }
             LLMResult::ToolCall(tool_call_result) => {
                 messages.add_message(tool_call_result.ai_message.clone());
@@ -108,7 +142,10 @@ where
             }
         }
 
-        Ok(conversations)
+        Ok(AgentResponse {
+            final_answer,
+            intermediate_steps: conversations,
+        })
     }
 
     pub async fn chat(&self, message: &str) -> Result<Conversations, LLMError> {
@@ -148,6 +185,31 @@ where
         }
 
         Ok(conversations)
+    }
+}
+
+struct MyDataStream {
+    index: usize,
+    data:Vec<usize> 
+}
+struct MyData {
+    id: u32,
+    name: String,
+}
+
+impl Stream for MyDataStream {
+    type Item = usize;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.index >= self.data.len() {
+            return Poll::Ready(None);
+        }
+
+        let item = self.data[self.index].clone();
+        self.index += 1;
+
+
+        Poll::Ready(Some(item))
     }
 }
 
@@ -565,6 +627,66 @@ mod tests {
             results[0].request.messages[1].content,
             messages_1.messages[0].content
         );
+
+        Ok(())
+    }
+
+    fn mock_server_setup() -> MockServer {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .body_excludes("assistant")
+                .body_includes("tools");
+            then.status(200)
+                .header("content-type", "text/json; charset=UTF-8")
+                .body(r#"{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"晴れ","role":"assistant"}}],"created":1743601854,"model":"gemini-2.0-flash","object":"chat.completion","usage":{"completion_tokens":1527,"prompt_tokens":6,"total_tokens":1533}}"#);
+        });
+        server
+    }
+
+    fn setup_agent(server: MockServer) -> Result<LLMAgent<Gemini>> {
+        let config = GeminiConfigBuilder::new()
+            .with_api_key("test_api_key")
+            .with_api_base(&server.url(""))
+            .build()?;
+        let gemini = Gemini::new(config);
+        let agent = LLMAgent::builder(gemini)
+            .with_system_prompt("あなたは親切なアシスタントです。")
+            .build()?;
+        Ok(agent)
+    }
+
+    fn test_message(message: &str) -> Messages {
+        Messages::builder().add_human_message(message).build()
+    }
+
+    #[tokio::test]
+    async fn test_agent_invoke_2() -> Result<()> {
+        let server = mock_server_setup();
+        let agent = setup_agent(server)?;
+        let messages = test_message("現在の東京の天気を調べてください。");
+
+        let result = agent.invoke(&messages).await?;
+        assert_eq!("晴れ", result.final_answer);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_agent_start() -> Result<()> {
+        let server = mock_server_setup();
+        let agent = setup_agent(server)?;
+        let messages = test_message("現在の東京の天気を調べてください。");
+
+        let stream = agent.start(&messages).await?;
+        let action = stream.next().await;
+        assert!(matches!(action, Some(NextAction::Request(_))));
+        let action = stream.next().await;
+        assert_eq!(action, Some(NextAction::ToolCall));
+        let action = stream.next().await;
+        assert_eq!(action, Some(NextAction::Request));
+        let action = stream.next().await;
+        assert_eq!(action, Some(NextAction::Response));
 
         Ok(())
     }
