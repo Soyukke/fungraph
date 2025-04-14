@@ -178,6 +178,11 @@ impl MessagesBuilder {
         }
     }
 
+    pub fn add_message(mut self, message: &Message) -> Self {
+        self.messages.push(message.clone());
+        self
+    }
+
     pub fn add_human_message(mut self, content: &str) -> Self {
         self.messages.push(Message::new_human_message(content));
         self

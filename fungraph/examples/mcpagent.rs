@@ -7,7 +7,7 @@ use fungraph::{
     node::{FunGraph, FunNode, FunState},
 };
 use fungraph_llm::{
-    LLM,
+    LLM, LLMResult, Message, Messages,
     gemini::{Gemini, GeminiConfigBuilder},
 };
 use log::debug;
@@ -49,8 +49,23 @@ where
 
     async fn run(&self, state: &mut MCPAgentState) {
         if let Some(user_input) = &state.user_input {
-            let result = self.agent.chat(user_input).await.unwrap();
-            println!("LLM response: {:?}", result);
+            let mut messages = state.histories.clone();
+            messages.add_message(Message::new_human_message(user_input));
+
+            state.histories = messages.clone();
+
+            let result = self.agent.invoke(&messages).await.unwrap();
+            let result = result.last().unwrap().response.clone();
+            match result {
+                LLMResult::Generate(generate_result) => {
+                    println!("LLM: {}", generate_result.generation());
+                    messages.add_message(Message::new_ai_message(generate_result.generation()));
+                    state.histories = messages.clone();
+                }
+                _ => {
+                    println!("Tool: {:?}", result);
+                }
+            }
         } else {
             println!("No user input provided.");
             return;
@@ -60,6 +75,7 @@ where
 
 struct MCPAgentState {
     pub user_input: Option<String>,
+    pub histories: Messages,
 }
 impl FunState for MCPAgentState {}
 
@@ -80,14 +96,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv()?;
     init();
     debug!("Starting chatbot example");
-
     let api_key = dotenvy::var("GEMINI_API_KEY")?;
     let llm = Gemini::new(GeminiConfigBuilder::new().with_api_key(&api_key).build()?);
     let agent = MCPAgent::builder(llm)
-        .with_system_prompt("test prompt")
-        .with_mcp_config_path("examples/use_mcp/src/config2.toml")
+        .with_mcp_config_path("fungraph/examples/use_mcp/src/config.toml")
         .build()
         .await?;
+    let graph = build_graph(agent.into());
+    let initial_state = MCPAgentState {
+        user_input: None,
+        histories: Messages::builder().build(),
+    };
+    graph.run(initial_state).await;
 
     Ok(())
 }

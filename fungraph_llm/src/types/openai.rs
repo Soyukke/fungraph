@@ -201,6 +201,7 @@ pub struct Parameters {
     #[serde(rename = "type")]
     pub r#type: String,
     pub properties: HashMap<String, Property>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
 }
 
@@ -208,9 +209,18 @@ pub struct Parameters {
 pub struct Property {
     #[serde(rename = "type")]
     pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Items>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
     pub enum_values: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Items {
+    #[serde(rename = "type")]
+    pub r#type: String,
 }
 
 #[cfg(test)]

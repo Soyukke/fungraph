@@ -51,6 +51,66 @@ where
         builder.add_human_message(message).build()
     }
 
+    fn build_messages2(&self, messages: &mut Messages) -> Messages {
+        let mut builder = MessagesBuilder::new();
+        if let Some(system_prompt) = &self.system_prompt {
+            builder = builder.add_system_message(system_prompt);
+        }
+
+        let tools = self
+            .tools
+            .iter()
+            .map(|(_, tool)| tool.to_openai_tool())
+            .collect::<Vec<_>>();
+
+        if !tools.is_empty() {
+            builder = builder.add_tools(tools);
+        }
+
+        for message in messages.messages.iter() {
+            builder = builder.add_message(message);
+        }
+
+        builder.build()
+    }
+
+    pub async fn invoke(&self, messages: &Messages) -> Result<Conversations, LLMError> {
+        let mut messages = messages.clone();
+        let mut messages = self.build_messages2(&mut messages);
+        let result = self.llm.invoke(&messages).await?;
+        let mut conversations = vec![Conversation {
+            request: messages.clone(),
+            response: result.clone(),
+        }];
+
+        match result {
+            LLMResult::Generate(_generate_result) => {
+                // Stop
+            }
+            LLMResult::ToolCall(tool_call_result) => {
+                messages.add_message(tool_call_result.ai_message.clone());
+                let target_tool = self.tools.get(&tool_call_result.name);
+                if let Some(tool) = target_tool {
+                    let result = tool.call(tool_call_result.arguments).await;
+                    let tool_message =
+                        Message::new_tool_message(result?, &tool_call_result.id.to_string());
+                    messages.add_message(tool_message);
+
+                    let result = self.llm.invoke(&messages).await?;
+
+                    conversations.push(Conversation {
+                        request: messages.clone(),
+                        response: result,
+                    });
+                } else {
+                    debug!("LLMAgent: Tool not found");
+                }
+            }
+        }
+
+        Ok(conversations)
+    }
+
     pub async fn chat(&self, message: &str) -> Result<Conversations, LLMError> {
         debug!("LLMAgent: Chat: {}", message);
         let mut messages = self.build_messages(message);
@@ -180,6 +240,7 @@ mod tests {
         gemini::{Gemini, GeminiConfigBuilder, OpenAIMessages},
         openai::{Parameters, Property, Tool},
     };
+    use futures::task::waker;
     use httpmock::{
         Method::POST, Mock, MockServer, server::matchers::readers::expectations::body_includes,
     };
@@ -246,6 +307,7 @@ mod tests {
                 r#type: "string".to_string(),
                 description: Some("The city and state, e.g. San Francisco, CA".to_string()),
                 enum_values: None,
+                items: None,
             };
             let unit_prop = Property {
                 r#type: "string".to_string(),
@@ -253,6 +315,7 @@ mod tests {
                     "The temperature unit to use. Infer this from the user's location.".to_string(),
                 ),
                 enum_values: Some(vec!["celsius".to_string(), "fahrenheit".to_string()]),
+                items: None,
             };
 
             let mut props = HashMap::new();
@@ -459,6 +522,50 @@ mod tests {
                 assert!(false, "No generate")
             }
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_agent_invoke() -> Result<()> {
+        init_logger();
+
+        let server = mock_gemini_api(
+            200,
+            r#"{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"こんにちは","role":"assistant"}}],"created":1743601854,"model":"gemini-2.0-flash","object":"chat.completion","usage":{"completion_tokens":1527,"prompt_tokens":6,"total_tokens":1533}}"#,
+        );
+
+        let messages_1 = Messages::builder()
+            .add_human_message("現在の東京の天気を調べてください。")
+            .build();
+
+        let config = GeminiConfigBuilder::new()
+            .with_api_key("test_api_key")
+            .with_api_base(&server.url(""))
+            .build()?;
+
+        let system_prompt = "あなたは親切なアシスタントです。";
+        let my_tool = MyTool {};
+        let gemini = Gemini::new(config);
+        let agent = LLMAgent::builder(gemini)
+            .with_system_prompt(system_prompt)
+            .build()?;
+        // llmへのリクエストとレスポンスのペア
+        let messages = Messages::builder()
+            .add_human_message("現在の東京の天気を調べてください。")
+            .build();
+        let results = agent.invoke(&messages).await?;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].request.messages[0].content,
+            Some(system_prompt.to_string())
+        );
+
+        assert_eq!(
+            results[0].request.messages[1].content,
+            messages_1.messages[0].content
+        );
+
         Ok(())
     }
 }

@@ -71,7 +71,8 @@ impl FunTool for McpToolAdapter {
 
     fn parameters(&self) -> Parameters {
         let value = serde_json::to_value(&self.tool.input_schema).unwrap_or(serde_json::json!({}));
-        serde_json::from_value(value).unwrap()
+        let mut params = serde_json::from_value(value).unwrap();
+        params
     }
 
     async fn call(&self, args: Value) -> Result<String> {

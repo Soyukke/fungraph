@@ -117,6 +117,25 @@ where
         self
     }
     pub async fn build(self) -> Result<MCPAgent<T>> {
+        let mut builder = LLMAgent::builder(self.llm);
+        let system_prompt = if let Some(system_prompt) = self.system_prompt {
+            system_prompt
+        } else {
+            //            r#"
+            //        あなたは様々なツールを利用してユーザーの要望を叶えるエージェントです。
+            //        - ユーザーの要望に対して、必要なツールを選択し、適切な引数を指定して実行してください。
+            //        - ユーザーの要望が不明瞭な場合は、質問をして明確にしてください。
+            //        - ユーザーの要望が実行不可能な場合は、実行せずにその旨を伝えてください。また、代替案を提案してください。
+            //        "#.into()
+            //
+            r#"
+        あなたは様々なツールを利用してユーザーの要望を叶えるエージェントです。
+        - ユーザーの要望に対して、必要なツールを選択し、適切な引数を指定して実行してください。
+        - 実行する前に、どのような方法でどのような情報を取得するかをユーザーに伝えて、了承を得たらツールを呼び出してください。
+        "#.into()
+        };
+        builder = builder.with_system_prompt(&system_prompt);
+
         let config_path = self
             .mcp_config_path
             .unwrap_or_else(|| "config.toml".to_string());
@@ -139,22 +158,11 @@ where
                     println!("description: {:?}", tool.description());
                     println!("parameters: {:?}", tool.parameters());
                     println!("\n");
+                    builder = builder.with_tool(tool);
                 }
             }
         }
 
-        let mut builder = LLMAgent::builder(self.llm);
-        let system_prompt = if let Some(system_prompt) = self.system_prompt {
-            system_prompt
-        } else {
-            r#"
-        あなたは様々なツールを利用してユーザーの要望を叶えるエージェントです。
-        - ユーザーの要望に対して、必要なツールを選択し、適切な引数を指定して実行してください。
-        - ユーザーの要望が不明瞭な場合は、質問をして明確にしてください。
-        - ユーザーの要望が実行不可能な場合は、実行せずにその旨を伝えてください。また、代替案を提案してください。
-        "#.into()
-        };
-        builder = builder.with_system_prompt(&system_prompt);
         let agent = builder.build()?;
         Ok(MCPAgent { agent })
     }

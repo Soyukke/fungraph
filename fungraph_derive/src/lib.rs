@@ -45,6 +45,7 @@ fn impl_tool_parameters(ast: &DeriveInput) -> Result<TokenStream> {
                             r#type: #data_type.to_string(),
                             description: Some(#desc.to_string()),
                             enum_values: None,
+                            items: None,
                         }
                     }
                 }
@@ -54,6 +55,7 @@ fn impl_tool_parameters(ast: &DeriveInput) -> Result<TokenStream> {
                             r#type: #data_type.to_string(),
                             description: None,
                             enum_values: None,
+                            items: None,
                         }
                     }
                 }
