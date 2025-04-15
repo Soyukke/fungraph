@@ -1,7 +1,13 @@
 mod mcp_agent;
 use futures::Stream;
 pub use mcp_agent::*;
-use std::{collections::HashMap, pin::Pin, task::{Context, Poll}, thread::sleep, time::Duration};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    task::{Context, Poll},
+    thread::sleep,
+    time::Duration,
+};
 
 use fungraph_llm::{LLM, LLMError, LLMResult, Message, Messages, MessagesBuilder};
 use log::{debug, info};
@@ -18,22 +24,21 @@ pub struct AgentResponse {
 
 pub struct AgentStream {}
 
-impl Stream for MyDataStream {
-    type Item = NextAction;
+impl Stream for AgentStream {
+    type Item = AgentAction;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(Some(NextAction::ToolCall))
+        Poll::Ready(Some(AgentAction::ToolCall))
     }
 }
-
 
 /// ツール呼び出し要求
 /// 普通の回答
 /// LLM問い合わせ
-pub enum NextAction {
+pub enum AgentAction {
     ToolCall,
-    Response,
-    Request,
+    Response(String),
+    Request(String),
 }
 
 #[derive(Debug)]
@@ -101,11 +106,8 @@ where
         builder.build()
     }
 
-    async fn start(
-        &self,
-        messages: &Messages,
-    ) -> Result<AgentStream, LLMError> {
-        let mut messages = self.build_messages2(messages);
+    async fn start(&self, messages: &Messages) -> Result<AgentStream, LLMError> {
+        Ok(AgentStream {})
     }
 
     pub async fn invoke(&self, messages: &Messages) -> Result<AgentResponse, LLMError> {
@@ -117,9 +119,10 @@ where
             response: result.clone(),
         }];
 
-        let final_answer = match result {
+        let mut final_answer = "".to_string();
+        match result {
             LLMResult::Generate(_generate_result) => {
-                _generate_result.generation()
+                final_answer = _generate_result.generation().to_string()
             }
             LLMResult::ToolCall(tool_call_result) => {
                 messages.add_message(tool_call_result.ai_message.clone());
@@ -185,31 +188,6 @@ where
         }
 
         Ok(conversations)
-    }
-}
-
-struct MyDataStream {
-    index: usize,
-    data:Vec<usize> 
-}
-struct MyData {
-    id: u32,
-    name: String,
-}
-
-impl Stream for MyDataStream {
-    type Item = usize;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.index >= self.data.len() {
-            return Poll::Ready(None);
-        }
-
-        let item = self.data[self.index].clone();
-        self.index += 1;
-
-
-        Poll::Ready(Some(item))
     }
 }
 
@@ -302,12 +280,13 @@ mod tests {
         gemini::{Gemini, GeminiConfigBuilder, OpenAIMessages},
         openai::{Parameters, Property, Tool},
     };
-    use futures::task::waker;
+    use futures::{stream, task::waker};
     use httpmock::{
         Method::POST, Mock, MockServer, server::matchers::readers::expectations::body_includes,
     };
     use log::{debug, info};
     use serde_json::{Value, json};
+    use tokio_stream::StreamExt;
 
     use crate::tools::ToolParameters;
 
@@ -678,15 +657,25 @@ mod tests {
         let agent = setup_agent(server)?;
         let messages = test_message("現在の東京の天気を調べてください。");
 
-        let stream = agent.start(&messages).await?;
+        let mut stream = agent.start(&messages).await?;
         let action = stream.next().await;
-        assert!(matches!(action, Some(NextAction::Request(_))));
+        match action {
+            Some(AgentAction::ToolCall) => {
+                debug!("Tool call action received");
+            }
+            _ => {
+                panic!("Expected ToolCall action");
+            }
+        }
+
+        assert!(
+            matches!(action, Some(AgentAction::Request(message)) if message == "現在の東京の天気を調べてください。".to_string())
+        );
         let action = stream.next().await;
-        assert_eq!(action, Some(NextAction::ToolCall));
-        let action = stream.next().await;
-        assert_eq!(action, Some(NextAction::Request));
-        let action = stream.next().await;
-        assert_eq!(action, Some(NextAction::Response));
+        assert!(matches!(
+            action,
+            Some(AgentAction::Response(message)) if message == "晴れ".to_string()
+        ));
 
         Ok(())
     }
