@@ -22,7 +22,9 @@ pub struct AgentResponse {
     pub intermediate_steps: Vec<Conversation>,
 }
 
-pub struct AgentStream {}
+pub struct AgentStream {
+    current_action: Option<AgentAction>,
+}
 
 impl Stream for AgentStream {
     type Item = AgentAction;
