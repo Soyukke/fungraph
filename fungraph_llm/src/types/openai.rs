@@ -205,7 +205,7 @@ pub struct Parameters {
     pub required: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Property {
     #[serde(rename = "type")]
     pub r#type: String,
@@ -215,12 +215,18 @@ pub struct Property {
     pub description: Option<String>,
     #[serde(rename = "enum", skip_serializing_if = "Option::is_none")]
     pub enum_values: Option<Vec<String>>,
+    /// if `type` is `object`, this field is required
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<Box<HashMap<String, Property>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Items {
     #[serde(rename = "type")]
     pub r#type: String,
+    /// if `type` is `array`, this field is required
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<Items>>,
 }
 
 #[derive(Debug, Serialize)]

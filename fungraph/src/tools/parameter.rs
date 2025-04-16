@@ -21,13 +21,13 @@ mod tests {
                 r#type: "string".to_string(),
                 description: Some("This is a string parameter".to_string()),
                 enum_values: Some(vec!["value1".to_string(), "value2".to_string()]),
-                items: None,
+                ..Default::default()
             };
             let value2 = Property {
                 r#type: "number".to_string(),
                 description: Some("This is an integer parameter".to_string()),
                 enum_values: Some(vec!["1".to_string(), "2".to_string()]),
-                items: None,
+                ..Default::default()
             };
 
             Parameters {

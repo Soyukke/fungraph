@@ -306,8 +306,7 @@ mod tests {
             let location_prop = Property {
                 r#type: "string".to_string(),
                 description: Some("The city and state, e.g. San Francisco, CA".to_string()),
-                enum_values: None,
-                items: None,
+                ..Default::default()
             };
             let unit_prop = Property {
                 r#type: "string".to_string(),
@@ -315,7 +314,7 @@ mod tests {
                     "The temperature unit to use. Infer this from the user's location.".to_string(),
                 ),
                 enum_values: Some(vec!["celsius".to_string(), "fahrenheit".to_string()]),
-                items: None,
+                ..Default::default()
             };
 
             let mut props = HashMap::new();
