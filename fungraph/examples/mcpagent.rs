@@ -55,17 +55,7 @@ where
             state.histories = messages.clone();
 
             let result = self.agent.invoke(&messages).await.unwrap();
-            let result = result.last().unwrap().response.clone();
-            match result {
-                LLMResult::Generate(generate_result) => {
-                    println!("LLM: {}", generate_result.generation());
-                    messages.add_message(Message::new_ai_message(generate_result.generation()));
-                    state.histories = messages.clone();
-                }
-                _ => {
-                    println!("Tool: {:?}", result);
-                }
-            }
+            println!("LLM: {}", result.final_answer);
         } else {
             println!("No user input provided.");
             return;

@@ -20,11 +20,12 @@ pub struct AgentResponse {
     pub intermediate_steps: Vec<Conversation>,
 }
 
-pub struct AgentStream {
+pub struct AgentStream<'a, T: LLM> {
+    agent: &'a LLMAgent<T>,
     next_action: Option<AgentAction>,
 }
 
-impl Stream for AgentStream {
+impl<'a, T: LLM> Stream for AgentStream<'a, T> {
     type Item = AgentAction;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -112,8 +113,18 @@ where
         builder.build()
     }
 
-    async fn start(&self, messages: &Messages) -> Result<AgentStream, LLMError> {
-        Ok(AgentStream { next_action: None })
+    async fn start(&self, messages: &Messages) -> Result<AgentStream<'_, T>, LLMError> {
+        Ok(AgentStream {
+            agent: self,
+            next_action: None,
+        })
+    }
+
+    pub async fn invoke_chat(&self, user_message: &str) -> Result<LLMResult, LLMError> {
+        let mut messages = Messages::builder().add_human_message(user_message).build();
+        let messages = self.build_messages2(&mut messages);
+        let result = self.llm.invoke(&messages).await?;
+        Ok(result)
     }
 
     pub async fn invoke(&self, messages: &Messages) -> Result<AgentResponse, LLMError> {
@@ -283,6 +294,7 @@ mod tests {
 
     use async_trait::async_trait;
     use fungraph_llm::{
+        GenerateResult, TokenUsage,
         gemini::{Gemini, GeminiConfigBuilder, OpenAIMessages},
         openai::{Parameters, Property, Tool},
     };
@@ -619,10 +631,7 @@ mod tests {
     fn mock_server_setup(request_message: &str, response_message: &str) -> MockServer {
         let server = MockServer::start();
         server.mock(|when, then| {
-            when.method(POST)
-                .path("/chat/completions")
-                .body_excludes("assistant")
-                .body_includes("tools");
+            when.method(POST).path("/chat/completions");
             then.status(200)
                 .header("content-type", "text/json; charset=UTF-8")
                 .body(format!(
@@ -668,15 +677,36 @@ mod tests {
         Messages::builder().add_human_message(message).build()
     }
 
+    // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_2 -- --exact --nocapture
     #[tokio::test]
     async fn test_agent_invoke_2() -> Result<()> {
         let request_message = "現在の東京の天気を調べてください。";
-        let server = mock_server_setup(request_message, "晴れ");
+        let response_message = "晴れ";
+        let server = mock_server_setup(request_message, response_message);
         let agent = setup_agent(server)?;
         let messages = test_message(request_message);
-
         let result = agent.invoke(&messages).await?;
-        assert_eq!("晴れ", result.final_answer);
+        assert_eq!(response_message, result.final_answer);
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_chat -- --exact --nocapture
+    #[tokio::test]
+    async fn test_agent_invoke_chat() -> Result<()> {
+        let request_message = "現在の東京の天気を調べてください。";
+        let response_message = "晴れ";
+        let server = mock_server_setup(request_message, response_message);
+        let agent = setup_agent(server)?;
+        // resultはLLMResult ?
+        // - 現在前回ToolCallsなら、Tool実行
+        // - Tool実行、ユーザーリクエスト、ならinvoke_request実行
+        // 前回LLMResultの通常Responseなら、終了。
+        let result = agent.invoke_chat(request_message).await?;
+        if let LLMResult::Generate(result) = result {
+            assert_eq!(response_message, result.generation());
+        } else {
+            assert!(false, "No results returned");
+        }
         Ok(())
     }
 

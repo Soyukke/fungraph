@@ -251,12 +251,12 @@ mod tests {
         let i_1 = graph.add_node(node1);
         let i_2 = graph.add_node(node2);
         graph.add_start_edge(i_1);
-        graph.add_conditional_edge(i_1, i_2, |state: &MyState| {
+        graph.add_conditional_edge(i_1, i_2, |_: &MyState| {
             debug!("i_1 -> i_2 is false");
             false
         });
         graph.add_edge(i_2, i_1);
-        graph.add_conditional_end_edge(i_1, |state: &MyState| {
+        graph.add_conditional_end_edge(i_1, |_: &MyState| {
             debug!("i_1 -> i_end is true");
             true
         });
