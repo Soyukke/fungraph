@@ -304,6 +304,7 @@ mod tests {
     };
     use log::{debug, info};
     use serde_json::{Value, json};
+    use serial_test::serial;
     use tokio_stream::StreamExt;
 
     use crate::tools::ToolParameters;
@@ -661,6 +662,55 @@ mod tests {
         server
     }
 
+    // cargo test agent::tests::test_agent_invoke_tool_call -- --exact --nocapture
+    fn mock_toolcall_server_setup(request_message: &str, tool_args_str: &str) -> MockServer {
+        let escaped_tool_args = tool_args_str.replace("\"", "\\\"");
+        let server = MockServer::start();
+        let response_body = format!(
+            r#"
+{{
+  "choices": [
+    {{
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "message": {{
+        "content": null,
+        "role": "assistant",
+        "tool_calls": [
+          {{
+            "id": "call_abc123",
+            "function": {{
+              "arguments": "{}",
+              "name": "get_weather"
+            }},
+            "type": "function"
+          }}
+        ]
+      }}
+    }}
+  ],
+  "created": 1743601854,
+  "model": "gemini-2.0-flash",
+  "object": "chat.completion",
+  "usage": {{
+    "completion_tokens": 1527,
+    "prompt_tokens": 6,
+    "total_tokens": 1533
+  }}
+}}
+                    "#,
+            escaped_tool_args
+        );
+        debug!("mock_toolcall_server_setup: {}", response_body);
+        server.mock(|when, then| {
+            when.method(POST).path("/chat/completions");
+            then.status(200)
+                .header("content-type", "text/json; charset=UTF-8")
+                .body(response_body);
+        });
+        server
+    }
+
     fn setup_agent(server: MockServer) -> Result<LLMAgent<Gemini>> {
         let config = GeminiConfigBuilder::new()
             .with_api_key("test_api_key")
@@ -679,6 +729,7 @@ mod tests {
 
     // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_2 -- --exact --nocapture
     #[tokio::test]
+    #[serial]
     async fn test_agent_invoke_2() -> Result<()> {
         let request_message = "現在の東京の天気を調べてください。";
         let response_message = "晴れ";
@@ -692,18 +743,38 @@ mod tests {
 
     // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_chat -- --exact --nocapture
     #[tokio::test]
+    #[serial]
     async fn test_agent_invoke_chat() -> Result<()> {
         let request_message = "現在の東京の天気を調べてください。";
         let response_message = "晴れ";
         let server = mock_server_setup(request_message, response_message);
         let agent = setup_agent(server)?;
-        // resultはLLMResult ?
-        // - 現在前回ToolCallsなら、Tool実行
-        // - Tool実行、ユーザーリクエスト、ならinvoke_request実行
-        // 前回LLMResultの通常Responseなら、終了。
         let result = agent.invoke_chat(request_message).await?;
         if let LLMResult::Generate(result) = result {
             assert_eq!(response_message, result.generation());
+        } else {
+            assert!(false, "No results returned");
+        }
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_tool_call -- --exact --nocapture
+    #[tokio::test]
+    #[serial]
+    async fn test_agent_invoke_tool_call() -> Result<()> {
+        init_logger();
+        let request_message = "現在の東京の天気を調べてください。";
+        let tool_args = r#"{"location": "tokyo"}"#;
+
+        let server = mock_toolcall_server_setup(request_message, tool_args);
+        let agent = setup_agent(server)?;
+        let result = agent.invoke_chat(request_message).await?;
+        if let LLMResult::ToolCall(result) = result {
+            assert_eq!("get_weather", result.name);
+            assert_eq!(
+                serde_json::from_str::<Value>(tool_args).unwrap(),
+                result.arguments
+            );
         } else {
             assert!(false, "No results returned");
         }
@@ -732,6 +803,7 @@ mod tests {
 
     // RUST_LOG=debug cargo test agent::tests::test_agent_start -- --exact --nocapture
     #[tokio::test]
+    #[serial]
     async fn test_agent_start() -> Result<()> {
         test_agent_start_simple("現在の東京の天気を調べてください。", "晴れ").await?;
         test_agent_start_simple("hello request", "hello response").await?;
