@@ -1,6 +1,7 @@
 mod mcp_agent;
 use futures::Stream;
 pub use mcp_agent::*;
+use serde_json::Value;
 use std::{
     collections::HashMap,
     pin::Pin,
@@ -125,6 +126,24 @@ where
         let messages = self.build_messages2(&mut messages);
         let result = self.llm.invoke(&messages).await?;
         Ok(result)
+    }
+
+    fn tool_names(&self) -> Vec<String> {
+        self.tools.iter().map(|(_, tool)| tool.name()).collect()
+    }
+
+    pub async fn invoke_tool_call(&self, name: &str, args: Value) -> Result<String, LLMError> {
+        let target_tool = self.tools.get(name);
+        if let Some(tool) = target_tool {
+            let result = tool.call(args).await?;
+            return Ok(result);
+        }
+
+        Err(LLMError::OtherError(format!(
+            "no tool found {} in {:?}.",
+            name,
+            self.tool_names()
+        )))
     }
 
     pub async fn invoke(&self, messages: &Messages) -> Result<AgentResponse, LLMError> {
@@ -717,8 +736,10 @@ mod tests {
             .with_api_base(&server.url(""))
             .build()?;
         let gemini = Gemini::new(config);
+        let weather_tool = MyTool {};
         let agent = LLMAgent::builder(gemini)
             .with_system_prompt("あなたは親切なアシスタントです。")
+            .with_tool(weather_tool)
             .build()?;
         Ok(agent)
     }
@@ -758,10 +779,10 @@ mod tests {
         Ok(())
     }
 
-    // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_tool_call -- --exact --nocapture
+    // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_tool_call_request -- --exact --nocapture
     #[tokio::test]
     #[serial]
-    async fn test_agent_invoke_tool_call() -> Result<()> {
+    async fn test_agent_invoke_tool_call_request() -> Result<()> {
         init_logger();
         let request_message = "現在の東京の天気を調べてください。";
         let tool_args = r#"{"location": "tokyo"}"#;
@@ -780,6 +801,25 @@ mod tests {
         }
         Ok(())
     }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_invoke_tool_call -- --exact --nocapture
+    #[tokio::test]
+    #[serial]
+    async fn test_agent_invoke_tool_call() -> Result<()> {
+        init_logger();
+        let tool_name = "get_weather";
+        let tool_args = r#"{"location": "tokyo"}"#;
+        let tool_args_json = json!({"location": "tokyo"});
+        let tool_result = "現在の東京の天気は晴れ、気温は25度です。";
+
+        let server = mock_toolcall_server_setup("", tool_args);
+        let agent = setup_agent(server)?;
+        let result = agent.invoke_tool_call(tool_name, tool_args_json).await?;
+        assert_eq!(tool_result, result);
+        Ok(())
+    }
+
+    // TODO: streamのテストを更新する
 
     async fn test_agent_start_simple(request_message: &str, response_message: &str) -> Result<()> {
         let server = mock_server_setup(request_message, response_message);
