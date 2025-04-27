@@ -56,7 +56,10 @@ impl<T: LLM + 'static> Stream for AgentStream<T> {
                                 Ok(result) => {
                                     let action = match result {
                                         LLMResult::ToolCall(tool_call_result) => {
-                                            AgentAction::ToolCall("test".to_string(), json!({}))
+                                            AgentAction::ToolCall(
+                                                tool_call_result.name,
+                                                tool_call_result.arguments,
+                                            )
                                         }
                                         LLMResult::Generate(generate_result) => {
                                             AgentAction::Response(
@@ -865,8 +868,6 @@ mod tests {
         Ok(())
     }
 
-    // TODO: streamのテストを更新する
-
     async fn test_agent_start_simple(request_message: &str, response_message: &str) -> Result<()> {
         init_logger();
         let server = mock_server_setup(request_message, response_message);
@@ -909,6 +910,43 @@ mod tests {
     async fn test_agent_start() -> Result<()> {
         test_agent_start_simple("現在の東京の天気を調べてください。", "晴れ").await?;
         test_agent_start_simple("hello request", "hello response").await?;
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_start_tool_call -- --exact --nocapture
+    #[tokio::test]
+    #[serial]
+    async fn test_agent_start_tool_call() -> Result<()> {
+        init_logger();
+        let request_message = "現在の東京の天気を調べてください。";
+        let tool_args = r#"{"location": "tokyo"}"#;
+        let tool_args_value = serde_json::from_str::<Value>(tool_args).unwrap();
+        let server = mock_toolcall_server_setup("", tool_args);
+        let agent = setup_agent(server)?;
+        let messages = test_message(request_message);
+        let mut stream = agent.start(messages).await?;
+
+        // 1. Request
+        if let Some(AgentAction::Request(message)) = stream.next_action.clone() {
+            assert_eq!(
+                request_message,
+                message.messages.last().unwrap().content.clone().unwrap()
+            );
+        } else {
+            assert!(false, "Expected AgentAction::Request fail");
+        }
+
+        // 2. LLM Response (ToolCall)
+        let action = stream.next().await;
+
+        if let Some(AgentAction::ToolCall(name, args)) = action {
+            debug!("AgentAction::ToolCall(name, args): {:?}, {}", name, args);
+            assert_eq!("get_weather", name);
+            assert_eq!(tool_args_value, args);
+        } else {
+            assert!(false, "Expected AgentAction::ToolCall fail");
+        }
+
         Ok(())
     }
 }
