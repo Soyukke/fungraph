@@ -1,10 +1,11 @@
 mod mcp_agent;
 use futures::Stream;
 pub use mcp_agent::*;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -21,19 +22,63 @@ pub struct AgentResponse {
     pub intermediate_steps: Vec<Conversation>,
 }
 
-pub struct AgentStream<'a, T: LLM> {
-    agent: &'a LLMAgent<T>,
+pub struct AgentStream<T: LLM> {
+    agent: Arc<LLMAgent<T>>,
     next_action: Option<AgentAction>,
+    future: Option<Pin<Box<dyn Future<Output = Result<LLMResult, LLMError>> + Send>>>,
 }
 
-impl<'a, T: LLM> Stream for AgentStream<'a, T> {
+impl<T: LLM + 'static> Stream for AgentStream<T> {
     type Item = AgentAction;
 
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.next_action.is_none() {
-            let next_action = AgentAction::Request("現在の東京の天気を調べてください。".into());
-            self.next_action = Some(next_action.clone());
-            return Poll::Ready(Some(next_action));
+            return Poll::Ready(None);
+        }
+
+        match self.next_action.as_ref() {
+            Some(AgentAction::Request(messages)) => {
+                // 非同期処理がまだセットされていない場合
+                if self.future.is_none() {
+                    let agent = Arc::clone(&self.agent);
+                    let user_message = messages.messages.last().unwrap().content.clone().unwrap();
+                    self.future = Some(Box::pin(
+                        async move { agent.invoke_chat(&user_message).await },
+                    ));
+                }
+
+                // 非同期処理をポーリング
+                if let Some(fut) = &mut self.future {
+                    let poll_item: Poll<Option<Self::Item>> = match fut.as_mut().poll(cx) {
+                        Poll::Ready(result) => {
+                            self.future = None;
+                            let next_item = match result {
+                                Ok(result) => {
+                                    let action = match result {
+                                        LLMResult::ToolCall(tool_call_result) => {
+                                            AgentAction::ToolCall("test".to_string(), json!({}))
+                                        }
+                                        LLMResult::Generate(generate_result) => {
+                                            AgentAction::Response(
+                                                generate_result.generation().to_string(),
+                                            )
+                                        }
+                                    };
+                                    Poll::Ready(Some(action))
+                                }
+                                Err(_) => Poll::Ready(None),
+                            };
+                            return next_item;
+                        }
+                        Poll::Pending => Poll::Pending,
+                    };
+                    return poll_item;
+                }
+            }
+            Some(AgentAction::ToolCall(name, args)) => {}
+            _ => {
+                return Poll::Ready(None);
+            }
         }
         Poll::Ready(Some(AgentAction::Response("晴れ".into())))
     }
@@ -44,9 +89,9 @@ impl<'a, T: LLM> Stream for AgentStream<'a, T> {
 /// LLM問い合わせ
 #[derive(Debug, Clone)]
 pub enum AgentAction {
-    ToolCall,
+    ToolCall(String, Value),
     Response(String),
-    Request(String),
+    Request(Messages),
 }
 
 #[derive(Debug)]
@@ -114,10 +159,11 @@ where
         builder.build()
     }
 
-    async fn start(&self, messages: &Messages) -> Result<AgentStream<'_, T>, LLMError> {
+    async fn start(self, messages: Messages) -> Result<AgentStream<T>, LLMError> {
         Ok(AgentStream {
-            agent: self,
-            next_action: None,
+            agent: Arc::new(self),
+            next_action: Some(AgentAction::Request(messages)),
+            future: None,
         })
     }
 
@@ -822,22 +868,38 @@ mod tests {
     // TODO: streamのテストを更新する
 
     async fn test_agent_start_simple(request_message: &str, response_message: &str) -> Result<()> {
+        init_logger();
         let server = mock_server_setup(request_message, response_message);
         let agent = setup_agent(server)?;
         let messages = test_message(request_message);
-        let mut stream = agent.start(&messages).await?;
+        let mut stream = agent.start(messages).await?;
+
+        if let Some(AgentAction::Request(message)) = stream.next_action.clone() {
+            assert_eq!(
+                request_message,
+                message.messages.last().unwrap().content.clone().unwrap()
+            );
+        } else {
+            assert!(false, "Expected AgentAction::Request fail");
+        }
+
         let action = stream.next().await;
-        assert!(
-            matches!(action, Some(AgentAction::Request(message)) if message ==request_message.to_string())
-        );
-        assert!(
-            matches!(stream.next_action.clone(), Some(AgentAction::Request(message)) if message == request_message.to_string())
-        );
-        let action = stream.next().await;
-        assert!(matches!(
-            action,
-            Some(AgentAction::Response(message)) if message == response_message.to_string()
-        ));
+
+        if let Some(AgentAction::Response(message)) = action {
+            debug!("AgentAction::Response(message): {:?}", message);
+            assert_eq!(response_message, message);
+        } else {
+            assert!(false, "Expected AgentAction::Response fail");
+        }
+
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_start0 -- --exact --nocapture
+    #[tokio::test]
+    #[serial]
+    async fn test_agent_start0() -> Result<()> {
+        test_agent_start_simple("現在の東京の天気を調べてください。", "晴れ").await?;
         Ok(())
     }
 
