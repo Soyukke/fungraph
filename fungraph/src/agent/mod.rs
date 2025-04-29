@@ -26,6 +26,7 @@ pub struct AgentStream<T: LLM> {
     agent: Arc<LLMAgent<T>>,
     next_action: Option<AgentAction>,
     future: Option<Pin<Box<dyn Future<Output = Result<LLMResult, LLMError>> + Send>>>,
+    future_toolcall: Option<Pin<Box<dyn Future<Output = Result<String, LLMError>> + Send>>>,
 }
 
 impl<T: LLM + 'static> Stream for AgentStream<T> {
@@ -36,19 +37,16 @@ impl<T: LLM + 'static> Stream for AgentStream<T> {
             return Poll::Ready(None);
         }
 
-        match self.next_action.as_ref() {
+        match self.next_action.clone() {
             Some(AgentAction::Request(messages)) => {
                 // 非同期処理がまだセットされていない場合
                 if self.future.is_none() {
                     let agent = Arc::clone(&self.agent);
-                    let user_message = messages.messages.last().unwrap().content.clone().unwrap();
-                    self.future = Some(Box::pin(
-                        async move { agent.invoke_chat(&user_message).await },
-                    ));
+                    self.future = Some(Box::pin(async move { agent.invoke_chat(messages).await }));
                 }
 
                 // 非同期処理をポーリング
-                if let Some(fut) = &mut self.future {
+                let next_action = if let Some(fut) = &mut self.future {
                     let poll_item: Poll<Option<Self::Item>> = match fut.as_mut().poll(cx) {
                         Poll::Ready(result) => {
                             self.future = None;
@@ -67,23 +65,67 @@ impl<T: LLM + 'static> Stream for AgentStream<T> {
                                             )
                                         }
                                     };
+                                    self.next_action = Some(action.clone());
                                     Poll::Ready(Some(action))
                                 }
-                                Err(_) => Poll::Ready(None),
+                                Err(_) => {
+                                    self.next_action = None;
+                                    Poll::Ready(None)
+                                }
                             };
                             return next_item;
                         }
                         Poll::Pending => Poll::Pending,
                     };
-                    return poll_item;
+                    poll_item
+                } else {
+                    self.next_action = None;
+                    Poll::Ready(None)
+                };
+                next_action
+            }
+            Some(AgentAction::ToolCall(name, args)) => {
+                let name = Arc::new(name);
+                // 非同期処理がまだセットされていない場合
+                if self.future_toolcall.is_none() {
+                    let agent = Arc::clone(&self.agent);
+                    self.future_toolcall = Some(Box::pin({
+                        let name = Arc::clone(&name);
+                        async move { agent.invoke_tool_call(&name, args.clone()).await }
+                    }));
                 }
+
+                // 非同期処理をポーリング
+                let next_action = if let Some(fut) = &mut self.future_toolcall {
+                    let poll_item: Poll<Option<Self::Item>> = match fut.as_mut().poll(cx) {
+                        Poll::Ready(result) => {
+                            self.future_toolcall = None;
+                            let next_item = match result {
+                                Ok(result) => {
+                                    let messages = Messages::builder()
+                                        .add_tool_message(&result, &name)
+                                        .build();
+                                    self.next_action = Some(AgentAction::Request(messages));
+                                    Poll::Ready(self.next_action.clone())
+                                }
+                                Err(_) => {
+                                    self.next_action = None;
+                                    Poll::Ready(None)
+                                }
+                            };
+                            return next_item;
+                        }
+                        Poll::Pending => Poll::Pending,
+                    };
+                    poll_item
+                } else {
+                    self.next_action = None;
+                    Poll::Ready(None)
+                };
+                next_action
             }
-            Some(AgentAction::ToolCall(name, args)) => {}
-            _ => {
-                return Poll::Ready(None);
-            }
+            _ => Poll::Ready(None),
         }
-        Poll::Ready(Some(AgentAction::Response("晴れ".into())))
     }
 }
 
@@ -167,11 +209,12 @@ where
             agent: Arc::new(self),
             next_action: Some(AgentAction::Request(messages)),
             future: None,
+            future_toolcall: None,
         })
     }
 
-    pub async fn invoke_chat(&self, user_message: &str) -> Result<LLMResult, LLMError> {
-        let mut messages = Messages::builder().add_human_message(user_message).build();
+    pub async fn invoke_chat(&self, messages: Messages) -> Result<LLMResult, LLMError> {
+        let mut messages = messages.clone();
         let messages = self.build_messages2(&mut messages);
         let result = self.llm.invoke(&messages).await?;
         Ok(result)
@@ -362,7 +405,7 @@ mod tests {
 
     use async_trait::async_trait;
     use fungraph_llm::{
-        GenerateResult, TokenUsage,
+        GenerateResult, MessageType, TokenUsage,
         gemini::{Gemini, GeminiConfigBuilder, OpenAIMessages},
         openai::{Parameters, Property, Tool},
     };
@@ -779,6 +822,72 @@ mod tests {
         server
     }
 
+    fn mock_toolcall_and_response_server_setup(
+        request_message: &str,
+        tool_args_str: &str,
+        llm_response: &str,
+    ) -> MockServer {
+        let escaped_tool_args = tool_args_str.replace("\"", "\\\"");
+        let server = MockServer::start();
+        let toolcall_response_body = format!(
+            r#"
+{{
+  "choices": [
+    {{
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "message": {{
+        "content": null,
+        "role": "assistant",
+        "tool_calls": [
+          {{
+            "id": "call_abc123",
+            "function": {{
+              "arguments": "{}",
+              "name": "get_weather"
+            }},
+            "type": "function"
+          }}
+        ]
+      }}
+    }}
+  ],
+  "created": 1743601854,
+  "model": "gemini-2.0-flash",
+  "object": "chat.completion",
+  "usage": {{
+    "completion_tokens": 1527,
+    "prompt_tokens": 6,
+    "total_tokens": 1533
+  }}
+}}
+                    "#,
+            escaped_tool_args
+        );
+        let final_response_body = format!(
+            r#"{{"choices":[{{"finish_reason":"stop","index":0,"message":{{"content":"{}","role":"assistant"}}}}],"created":1743601854,"model":"gemini-2.0-flash","object":"chat.completion","usage":{{"completion_tokens":1527,"prompt_tokens":6,"total_tokens":1533}}}}"#,
+            llm_response
+        );
+
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .body_excludes("\"tool\"");
+            then.status(200)
+                .header("content-type", "text/json; charset=UTF-8")
+                .body(toolcall_response_body);
+        });
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .body_includes("\"tool\"");
+            then.status(200)
+                .header("content-type", "text/json; charset=UTF-8")
+                .body(final_response_body);
+        });
+        server
+    }
+
     fn setup_agent(server: MockServer) -> Result<LLMAgent<Gemini>> {
         let config = GeminiConfigBuilder::new()
             .with_api_key("test_api_key")
@@ -819,7 +928,10 @@ mod tests {
         let response_message = "晴れ";
         let server = mock_server_setup(request_message, response_message);
         let agent = setup_agent(server)?;
-        let result = agent.invoke_chat(request_message).await?;
+        let messages = Messages::builder()
+            .add_human_message(request_message)
+            .build();
+        let result = agent.invoke_chat(messages).await?;
         if let LLMResult::Generate(result) = result {
             assert_eq!(response_message, result.generation());
         } else {
@@ -838,7 +950,10 @@ mod tests {
 
         let server = mock_toolcall_server_setup(request_message, tool_args);
         let agent = setup_agent(server)?;
-        let result = agent.invoke_chat(request_message).await?;
+        let messages = Messages::builder()
+            .add_human_message(request_message)
+            .build();
+        let result = agent.invoke_chat(messages).await?;
         if let LLMResult::ToolCall(result) = result {
             assert_eq!("get_weather", result.name);
             assert_eq!(
@@ -945,6 +1060,68 @@ mod tests {
             assert_eq!(tool_args_value, args);
         } else {
             assert!(false, "Expected AgentAction::ToolCall fail");
+        }
+
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_start_tool_call_and_next_response -- --exact --nocapture
+    #[tokio::test]
+    #[serial]
+    async fn test_agent_start_tool_call_and_next_response() -> Result<()> {
+        init_logger();
+        let request_message = "現在の東京の天気を調べてください。";
+        let tool_args = r#"{"location": "tokyo"}"#;
+        let tool_args_value = serde_json::from_str::<Value>(tool_args).unwrap();
+        let tool_response = "現在の東京の天気は晴れ、気温は25度です。";
+        let llm_response = "LLM: 現在の東京は晴れ、気温は25度です。";
+        let server = mock_toolcall_and_response_server_setup("", tool_args, llm_response);
+        let agent = setup_agent(server)?;
+        let messages = test_message(request_message);
+        let mut stream = agent.start(messages).await?;
+
+        // 1. Request
+        if let Some(AgentAction::Request(message)) = stream.next_action.clone() {
+            assert_eq!(
+                request_message,
+                message.messages.last().unwrap().content.clone().unwrap()
+            );
+        } else {
+            assert!(false, "Expected AgentAction::Request fail");
+        }
+
+        // 2. LLM Response (ToolCall)
+        let action = stream.next().await;
+        debug!("2. AgentAction::Response: {:?}", action);
+
+        if let Some(AgentAction::ToolCall(name, args)) = action {
+            assert_eq!("get_weather", name);
+            assert_eq!(tool_args_value, args);
+        } else {
+            assert!(false, "Expected AgentAction::ToolCall fail");
+        }
+
+        // 3. Tool run and next action Request includes tool results.
+        let action = stream.next().await;
+        debug!("3. AgentAction::Response: {:?}", action);
+        if let Some(AgentAction::Request(messages)) = action {
+            debug!("AgentAction::Request(messages): {:?}", messages);
+            let last_message = messages.messages.last().unwrap();
+            assert_eq!(Some(tool_response.to_string()), last_message.content);
+            assert_eq!(MessageType::ToolMessage, last_message.message_type);
+        } else {
+            assert!(false, "Expected AgentAction::Response fail");
+        }
+
+        // TODO
+        // 4. LLM Response
+        let action = stream.next().await;
+        debug!("4. AgentAction::Response: {:?}", action);
+
+        if let Some(AgentAction::Response(response_message)) = action {
+            assert_eq!(llm_response, response_message);
+        } else {
+            assert!(false, "Expected AgentAction::Response fail");
         }
 
         Ok(())
