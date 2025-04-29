@@ -284,11 +284,36 @@ where
 
 pub struct ChatStream {
     event_source: EventSource,
+    result: Option<LLMResult>,
 }
 
 impl ChatStream {
     pub fn new(event_source: EventSource) -> Self {
-        Self { event_source }
+        Self {
+            event_source,
+            result: None,
+        }
+    }
+
+    pub async fn result(self) -> Result<LLMResult, LLMError> {
+        if let Some(result) = self.result {
+            Ok(result)
+        } else {
+            Err(LLMError::OtherError("No result available".to_string()))
+        }
+    }
+
+    fn update_result(&mut self, content: &str, tokens: Option<TokenUsage>) {
+        let generation = {
+            match self.result.as_ref() {
+                Some(LLMResult::Generate(result)) => result.generation().to_string(),
+                _ => "".into(),
+            }
+        };
+        self.result = Some(LLMResult::Generate(GenerateResult::new(
+            generation.to_string() + content,
+            tokens.clone(),
+        )));
     }
 }
 
@@ -388,6 +413,10 @@ impl Stream for ChatStream {
                                                         // func a
                                                         if let Some(content) = &choice.delta.content
                                                         {
+                                                            self.update_result(
+                                                                content,
+                                                                tokens.clone(),
+                                                            );
                                                             Ok(LLMResult::Generate(
                                                                 GenerateResult::new(
                                                                     content.clone(),
@@ -403,8 +432,8 @@ impl Stream for ChatStream {
                                                     }
                                                 }
                                             } else {
-                                                // func a
                                                 if let Some(content) = &choice.delta.content {
+                                                    self.update_result(content, tokens.clone());
                                                     Ok(LLMResult::Generate(GenerateResult::new(
                                                         content.clone(),
                                                         tokens,
@@ -721,6 +750,52 @@ data: [DONE]
             }
         }
         assert!(expected_values.is_empty());
+
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test test_invoke_stream_get_final_result
+    #[tokio::test]
+    async fn test_invoke_stream_get_final_result() -> Result<()> {
+        init_logger();
+
+        let body = r#"
+data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null,"index":0}],"created":1677667095,"model":"gpt-3.5-turbo-0301","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" world"},"finish_reason":null,"index":0}],"created":1677667095,"model":"gpt-3.5-turbo-0301","object":"chat.completion.chunk"}
+
+data: [DONE]
+"#;
+
+        let server = mock_gemini_stream_api(200, body);
+        let config = GeminiConfigBuilder::new()
+            .with_api_key("test_api_key")
+            .with_api_base(&server.url(""))
+            .build()?;
+
+        let gemini = Gemini::new(config);
+        let messages: Messages = MessagesBuilder::new()
+            .add_human_message("Translate the following sentence to Japanese: Hello, world!")
+            .build();
+        let mut stream = gemini.invoke_stream(&messages).await?;
+
+        let mut expected_values = vec!["hello", " world"];
+        while let Some(result) = stream.next().await {
+            let delta = result?;
+            match delta {
+                LLMResult::Generate(delta) => {
+                    assert_eq!(expected_values.remove(0), delta.generation());
+                }
+                _ => assert!(false, "Expected Stream result"),
+            }
+        }
+        // Result<LLMResult, LLMError>
+        let result = stream.result().await?;
+        if let LLMResult::Generate(result) = result {
+            assert_eq!("hello world", result.generation());
+        } else {
+            assert!(false, "Expected Stream result");
+        }
 
         Ok(())
     }
