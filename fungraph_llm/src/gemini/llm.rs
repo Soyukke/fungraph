@@ -303,6 +303,7 @@ impl ChatStream {
         }
     }
 
+    // FIXME: LLMResult::Generationのときしかよばれていない。関数名とか内容とかがわかりにくい。
     fn update_result(&mut self, content: &str, tokens: Option<TokenUsage>) {
         let generation = {
             match self.result.as_ref() {
@@ -394,23 +395,27 @@ impl Stream for ChatStream {
                                                         )
                                                         .unwrap();
 
-                                                        Ok(LLMResult::ToolCall(ToolCallResult {
-                                                            id: "".to_string(),
-                                                            name,
-                                                            arguments,
-                                                            ai_message: Message {
-                                                                content: Some("tool called".into()),
-                                                                message_type:
-                                                                    MessageType::AIMessage,
-                                                                id: None,
-                                                                tool_calls: Some(tool_calls),
-                                                                images: None,
-                                                                name: None,
-                                                            },
-                                                        }))
+                                                        let llm_result =
+                                                            LLMResult::ToolCall(ToolCallResult {
+                                                                id: "".to_string(),
+                                                                name,
+                                                                arguments,
+                                                                ai_message: Message {
+                                                                    content: Some(
+                                                                        "tool called".into(),
+                                                                    ),
+                                                                    message_type:
+                                                                        MessageType::AIMessage,
+                                                                    id: None,
+                                                                    tool_calls: Some(tool_calls),
+                                                                    images: None,
+                                                                    name: None,
+                                                                },
+                                                            });
+                                                        self.result = Some(llm_result.clone());
+                                                        Ok(llm_result)
                                                     }
                                                     _ => {
-                                                        // func a
                                                         if let Some(content) = &choice.delta.content
                                                         {
                                                             self.update_result(
@@ -800,7 +805,7 @@ data: [DONE]
         Ok(())
     }
 
-    // RUST_LOG=debug cargo test llm::gemini::llm::tests::test_invoke_stream_tool_calls
+    // RUST_LOG=debug cargo test test_invoke_stream_tool_calls -- --nocapture
     #[tokio::test]
     async fn test_invoke_stream_tool_calls() -> Result<()> {
         init_logger();

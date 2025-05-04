@@ -8,6 +8,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use tokio_stream::StreamExt;
 
 use fungraph_llm::{LLM, LLMError, LLMResult, Message, Messages, MessagesBuilder};
 use log::debug;
@@ -152,6 +153,7 @@ where
     llm: T,
     system_prompt: Option<String>,
     tools: HashMap<String, Box<dyn FunTool>>,
+    is_stream: bool,
 }
 
 impl<T> LLMAgent<T>
@@ -216,7 +218,15 @@ where
     pub async fn invoke_chat(&self, messages: Messages) -> Result<LLMResult, LLMError> {
         let mut messages = messages.clone();
         let messages = self.build_messages2(&mut messages);
-        let result = self.llm.invoke(&messages).await?;
+
+        let result = if self.is_stream {
+            let mut stream = self.llm.invoke_stream(&messages).await?;
+            // TODO: resultを呼べば内部的に実行するとか、画面表示用にこれをどこかから取得できるようにしたい. Agentにtxを持たせるとか
+            while let Some(_) = stream.next().await {}
+            stream.result().await?
+        } else {
+            self.llm.invoke(&messages).await?
+        };
         Ok(result)
     }
 
@@ -326,6 +336,7 @@ where
     llm: T,
     system_prompt: Option<Message>,
     tools: HashMap<String, Box<dyn FunTool>>,
+    is_stream: bool,
 }
 
 impl<T> LLMAgentBuilder<T>
@@ -337,6 +348,7 @@ where
             llm,
             system_prompt: None,
             tools: HashMap::new(),
+            is_stream: false,
         }
     }
     pub fn build(self) -> Result<LLMAgent<T>, anyhow::Error> {
@@ -344,6 +356,7 @@ where
             llm: self.llm,
             system_prompt: self.system_prompt.unwrap().content,
             tools: self.tools,
+            is_stream: self.is_stream,
         })
     }
 
@@ -356,6 +369,11 @@ where
     pub fn with_tool<A: FunTool + 'static>(mut self, tool: A) -> Self {
         let name = tool.name().to_string();
         self.tools.insert(name.clone(), Box::new(tool));
+        self
+    }
+
+    pub fn with_stream(mut self) -> Self {
+        self.is_stream = true;
         self
     }
 }
@@ -888,6 +906,60 @@ mod tests {
         server
     }
 
+    fn mock_stream_toolcall_and_response_server_setup(
+        request_message: &str,
+        tool_args_str: &str,
+        llm_response: &str,
+    ) -> MockServer {
+        let escaped_tool_args = tool_args_str.replace("\"", "\\\"");
+        let server = MockServer::start();
+
+        let toolcall_response_body = format!(
+            r#"
+data: {{ "choices": [ {{ "delta": {{ "tool_calls": [ {{ "id": "call_abc123", "function": {{ "arguments": "{}", "name": "get_weather" }}, "type": "function" }} ] }}, "finish_reason": "tool_calls", "index": 0 }} ], "created": 1743601854, "model": "gemini-2.0-flash", "object": "chat.completion.chunk" }}
+
+data: [DONE]
+"#,
+            escaped_tool_args
+        );
+
+        debug!("toolcall_response_body: {}", toolcall_response_body);
+        let final_response_body = {
+            let lines = llm_response.split('\n');
+            let mut response_chunks = String::new();
+
+            for line in lines {
+                response_chunks.push_str(&format!(
+            r#"data: {{"choices":[{{"delta":{{"content":"{}"}},"finish_reason":null,"index":0}}],"created":1743601854,"model":"gemini-2.0-flash","object":"chat.completion.chunk"}}"#,
+            line
+        ));
+                response_chunks.push_str("\n\n");
+            }
+
+            response_chunks.push_str("data: [DONE]\n");
+            response_chunks
+        };
+        debug!("final_response_body: {}", final_response_body);
+
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .body_excludes("\"tool\"");
+            then.status(200)
+                .header("Content-Type", "text/event-stream") // stream 用のヘッダー
+                .body(toolcall_response_body);
+        });
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/chat/completions")
+                .body_includes("\"tool\"");
+            then.status(200)
+                .header("Content-Type", "text/event-stream") // stream 用のヘッダー
+                .body(final_response_body);
+        });
+        server
+    }
+
     fn setup_agent(server: MockServer) -> Result<LLMAgent<Gemini>> {
         let config = GeminiConfigBuilder::new()
             .with_api_key("test_api_key")
@@ -898,6 +970,21 @@ mod tests {
         let agent = LLMAgent::builder(gemini)
             .with_system_prompt("あなたは親切なアシスタントです。")
             .with_tool(weather_tool)
+            .build()?;
+        Ok(agent)
+    }
+
+    fn setup_agent_with_stream(server: MockServer) -> Result<LLMAgent<Gemini>> {
+        let config = GeminiConfigBuilder::new()
+            .with_api_key("test_api_key")
+            .with_api_base(&server.url(""))
+            .build()?;
+        let gemini = Gemini::new(config);
+        let weather_tool = MyTool {};
+        let agent = LLMAgent::builder(gemini)
+            .with_system_prompt("あなたは親切なアシスタントです。")
+            .with_tool(weather_tool)
+            .with_stream()
             .build()?;
         Ok(agent)
     }
@@ -1077,6 +1164,68 @@ mod tests {
         let llm_response = "LLM: 現在の東京は晴れ、気温は25度です。";
         let server = mock_toolcall_and_response_server_setup("", tool_args, llm_response);
         let agent = setup_agent(server)?;
+        let messages = test_message(request_message);
+        let mut stream = agent.start(messages).await?;
+
+        // 1. Request
+        if let Some(AgentAction::Request(message)) = stream.next_action.clone() {
+            assert_eq!(
+                request_message,
+                message.messages.last().unwrap().content.clone().unwrap()
+            );
+        } else {
+            assert!(false, "Expected AgentAction::Request fail");
+        }
+
+        // 2. LLM Response (ToolCall)
+        let action = stream.next().await;
+        debug!("2. AgentAction::Response: {:?}", action);
+
+        if let Some(AgentAction::ToolCall(name, args)) = action {
+            assert_eq!("get_weather", name);
+            assert_eq!(tool_args_value, args);
+        } else {
+            assert!(false, "Expected AgentAction::ToolCall fail");
+        }
+
+        // 3. Tool run and next action Request includes tool results.
+        let action = stream.next().await;
+        debug!("3. AgentAction::Response: {:?}", action);
+        if let Some(AgentAction::Request(messages)) = action {
+            debug!("AgentAction::Request(messages): {:?}", messages);
+            let last_message = messages.messages.last().unwrap();
+            assert_eq!(Some(tool_response.to_string()), last_message.content);
+            assert_eq!(MessageType::ToolMessage, last_message.message_type);
+        } else {
+            assert!(false, "Expected AgentAction::Response fail");
+        }
+
+        // TODO
+        // 4. LLM Response
+        let action = stream.next().await;
+        debug!("4. AgentAction::Response: {:?}", action);
+
+        if let Some(AgentAction::Response(response_message)) = action {
+            assert_eq!(llm_response, response_message);
+        } else {
+            assert!(false, "Expected AgentAction::Response fail");
+        }
+
+        Ok(())
+    }
+
+    // RUST_LOG=debug cargo test agent::tests::test_agent_start_tool_call_and_next_response_with_stream -- --exact --nocapture
+    #[tokio::test]
+    #[serial]
+    async fn test_agent_start_tool_call_and_next_response_with_stream() -> Result<()> {
+        init_logger();
+        let request_message = "現在の東京の天気を調べてください。";
+        let tool_args = r#"{"location": "tokyo"}"#;
+        let tool_args_value = serde_json::from_str::<Value>(tool_args).unwrap();
+        let tool_response = "現在の東京の天気は晴れ、気温は25度です。";
+        let llm_response = "LLM: 現在の東京は晴れ、気温は25度です。";
+        let server = mock_stream_toolcall_and_response_server_setup("", tool_args, llm_response);
+        let agent = setup_agent_with_stream(server)?;
         let messages = test_message(request_message);
         let mut stream = agent.start(messages).await?;
 
